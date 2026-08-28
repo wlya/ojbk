@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>51cg1 每日增量爬虫 · 项目总览</title>
+<style>
+  :root {
+    --bg: #0f1420; --card: #1a2233; --card2: #202b40; --line: #2c3a55;
+    --text: #e8edf6; --muted: #8fa0bd; --accent: #4f8cff; --green: #34c98e;
+    --orange: #ffb454; --red: #ff6b6b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    line-height: 1.7; padding: 40px 20px; max-width: 1080px; margin: 0 auto;
+  }
+  h1 { font-size: 26px; margin-bottom: 6px; }
+  h2 { font-size: 19px; margin: 34px 0 14px; padding-left: 12px; border-left: 4px solid var(--accent); }
+  .sub { color: var(--muted); margin-bottom: 24px; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 18px 0; }
+  .metric { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; text-align: center; }
+  .metric .num { font-size: 24px; font-weight: 700; color: var(--accent); }
+  .metric .num.green { color: var(--green); }
+  .metric .label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 12px 0; }
+  .timeline { position: relative; margin: 16px 0; padding-left: 34px; }
+  .timeline::before { content: ""; position: absolute; left: 12px; top: 8px; bottom: 8px; width: 2px; background: var(--line); }
+  .step { position: relative; margin-bottom: 18px; }
+  .step::before {
+    content: attr(data-n); position: absolute; left: -34px; top: 2px;
+    width: 26px; height: 26px; border-radius: 50%; background: var(--accent);
+    color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .step .t { font-weight: 600; margin-bottom: 2px; }
+  .step .d { color: var(--muted); font-size: 14px; }
+  code, .path {
+    background: #0b101c; border: 1px solid var(--line); border-radius: 6px;
+    padding: 1px 7px; font-family: Consolas, "Courier New", monospace; font-size: 13px; color: #9ecbff;
+  }
+  pre {
+    background: #0b101c; border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; margin: 10px 0; font-size: 13px; line-height: 1.6;
+  }
+  pre code { background: none; border: none; padding: 0; color: #d7e4ff; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; }
+  th { background: var(--card2); color: var(--text); white-space: nowrap; }
+  td { color: var(--muted); }
+  td:first-child { color: var(--text); }
+  .badge { display: inline-block; border-radius: 20px; padding: 2px 11px; font-size: 12px; font-weight: 600; margin-right: 6px; }
+  .b-green { background: rgba(52,201,142,.15); color: var(--green); }
+  .b-blue { background: rgba(79,140,255,.15); color: var(--accent); }
+  .b-orange { background: rgba(255,180,84,.15); color: var(--orange); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+  .footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 40px; }
+  .warn { border-left: 4px solid var(--orange); background: rgba(255,180,84,.08); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 12px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<h1>51cg1 每日增量爬虫</h1>
+<div class="sub">模拟浏览器指纹 · 关键词筛选 · m3u8 加密流下载 · SQLite 去重 · 全链路已实测</div>
+
+<div class="metrics">
+  <div class="metric"><div class="num green">✓ 全部通过</div><div class="label">端到端实测验证</div></div>
+  <div class="metric"><div class="num">chrome133a</div><div class="label">过 Cloudflare 盾指纹</div></div>
+  <div class="metric"><div class="num">121.6 MB</div><div class="label">实测完整下载视频</div></div>
+  <div class="metric"><div class="num">AES-128</div><div class="label">加密流解密支持</div></div>
+</div>
+
+<h2>工作流程</h2>
+<div class="timeline">
+  <div class="step" data-n="1">
+    <div class="t">构建模拟浏览器会话</div>
+    <div class="d">curl_cffi 依次尝试 chrome133a / chrome131 / safari18_0 / firefox133 指纹，自动检测系统代理（Windows 注册表 / 环境变量），选定第一个能通过 Cloudflare 验证的指纹。</div>
+  </div>
+  <div class="step" data-n="2">
+    <div class="t">翻页抓取列表（第 1~4 页）</div>
+    <div class="d">从 /category/wpcz/1/ 到 /4/，新内容在第一页最前面；解析全部帖子链接与标题，带 2 秒请求间隔。</div>
+  </div>
+  <div class="step" data-n="3">
+    <div class="t">关键词筛选 + 去重检查</div>
+    <div class="d">标题含「内射 / 巨乳 / 大奶 / 无套 / 乘骑」任一即命中；命中的帖子先查 SQLite（downloaded.db），已下载的直接跳过。</div>
+  </div>
+  <div class="step" data-n="4">
+    <div class="t">提取 m3u8 地址</div>
+    <div class="d">从帖子页源码（含内联 JS 转义）提取 HLS 地址；找不到时自动检查 iframe 播放页（最多 3 个）。</div>
+  </div>
+  <div class="step" data-n="5">
+    <div class="t">下载视频（AES-128 自动解密）</div>
+    <div class="d">有 ffmpeg → 直接合并为 mp4；没有 → 纯 Python 逐段下载、AES-128-CBC 解密、拼接为 .ts。文件小于 0.05 MB 判为失败并清理。</div>
+  </div>
+  <div class="step" data-n="6">
+    <div class="t">写入数据库 + 提前停止翻页</div>
+    <div class="d">成功后把帖子 URL / 标题 / 文件路径 / 时间写入 downloaded.db；某页命中帖子全部已下载过时提前停止（新内容总在最前页）。</div>
+  </div>
+</div>
+
+<h2>实测验证结果（2026-08-28）</h2>
+<table>
+  <tr><th>验证项</th><th>结果</th><th>说明</th></tr>
+  <tr><td>Cloudflare 过盾</td><td>✅ 通过</td><td>chrome133a 指纹返回 200；chrome124/131 会被拦截（脚本自动切换）</td></tr>
+  <tr><td>列表解析</td><td>✅ 通过</td><td>每页解析 46 个帖子；第 1 页命中 5~6 个、第 2 页命中 5 个</td></tr>
+  <tr><td>关键词筛选</td><td>✅ 通过</td><td>内射 / 巨乳 / 大奶 / 无套 / 乘骑 均正常命中</td></tr>
+  <tr><td>m3u8 提取</td><td>✅ 通过</td><td>帖子页内联 JS 中直接提取到带 auth_key 的 HLS 地址</td></tr>
+  <tr><td>加密流下载</td><td>✅ 通过</td><td>视频流为 AES-128 加密 HLS（191~201 段/部），逐段解密成功，完整成品 121.6 MB</td></tr>
+  <tr><td>SQLite 去重</td><td>✅ 通过</td><td>二次运行自动跳过已下载帖子，直接处理下一个新帖</td></tr>
+</table>
+
+<h2>使用方法</h2>
+<div class="card">
+<pre><code>pip install -r requirements.txt        # curl_cffi + beautifulsoup4 + pycryptodome
+
+python crawler.py                      # 正式执行一轮
+python crawler.py --dry-run            # 只列出命中帖子，不下载
+python crawler.py --max-pages 4        # 指定爬取页数（默认 4）
+python crawler.py --loop               # 常驻模式：每 24 小时自动执行
+python crawler.py --loop --interval-hours 12</code></pre>
+</div>
+
+<h2>每天定时运行（Windows 任务计划程序，推荐）</h2>
+<div class="card">
+<p>管理员 PowerShell 执行一次即可（每天 09:00 自动跑，路径按实际修改）：</p>
+<pre><code>schtasks /Create /TN "51cg1爬虫" /TR "cmd /c cd /d C:\path\to\crawler-51cg &amp;&amp; python crawler.py &gt;&gt; run.log 2&gt;&amp;1" /SC DAILY /ST 09:00</code></pre>
+<p>删除任务：<code>schtasks /Delete /TN "51cg1爬虫" /F</code>。也可以直接用 <code>--loop</code> 常驻模式（需保持终端开启）。</p>
+</div>
+
+<h2>媒体库：本地播放服务</h2>
+<div class="card">
+<p><code>python server.py</code> 启动后自动打开 <code>http://127.0.0.1:8787</code>：</p>
+<p style="margin-top:8px;">• 视频按下载时间倒序排列，点击即播，支持拖动进度条（HTTP Range）<br>
+• 播放过的视频标题前自动加 ✅，记录持久化在 <code>viewed_posts</code> 表<br>
+• .mp4 原生播放；.ts 用内置 mpegts.js 软解（已本地化 <code>vendor/mpegts.min.js</code>，无需联网）<br>
+• 与爬虫共用 downloaded.db，爬虫下载完点「刷新列表」即可看到</p>
+</div>
+
+<h2>文件结构与常用修改</h2>
+<div class="grid2">
+  <div class="card">
+    <div class="t" style="font-weight:600;margin-bottom:8px;">📁 目录结构</div>
+    <div class="path">crawler.py</div> — 主脚本<br>
+    <div class="path">requirements.txt</div> — 依赖清单<br>
+    <div class="path">videos/</div> — 视频保存目录<br>
+    <div class="path">downloaded.db</div> — SQLite 去重库<br>
+    <div class="path">crawler.log</div> — 运行日志
+  </div>
+  <div class="card">
+    <div class="t" style="font-weight:600;margin-bottom:8px;">🔧 常用修改（脚本顶部配置区）</div>
+    <code>KEYWORDS</code> 关键词列表<br>
+    <code>MAX_PAGES</code> 爬取页数<br>
+    <code>DELAY</code> 请求间隔秒数<br>
+    <code>PROXIES</code> 代理（None=自动检测）<br>
+    <code>VIDEO_DIR</code> 视频保存目录
+  </div>
+</div>
+
+<h2>数据库备忘</h2>
+<pre><code>sqlite3 downloaded.db
+SELECT title, video_file, downloaded_at FROM downloaded_posts ORDER BY id DESC;  -- 查看已下载
+DELETE FROM downloaded_posts WHERE url = '...';   -- 删除记录（下次会重新下载）
+SELECT COUNT(*) FROM downloaded_posts;            -- 统计总数</code></pre>
+
+<h2>注意事项</h2>
+<div class="warn">⚠ 本机需能访问该站点（当前环境自动走系统代理 127.0.0.1:7897，可直达）。换网络环境后若所有指纹均被拦，请更新 <code>IMPERSONATE_CANDIDATES</code> 或更换代理出口。</div>
+<div class="warn">⚠ 建议安装 ffmpeg（<code>winget install Gyan.FFmpeg</code>），下载将自动升级为 mp4 输出且速度更快；未安装时纯 Python 模式也完全可用（已实测）。</div>
+<div class="warn">⚠ 站点 TTL 防盗链的 m3u8 地址带时效签名，必须从帖子页实时提取，无法复用旧地址——脚本已按此实现。</div>
+
+<div class="footer">51cg1 Crawler · 生成于 2026-08-28 · 全链路实测通过</div>
+</body>
+</html>

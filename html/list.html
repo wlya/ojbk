@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>51cg1 媒体库 - 视频列表</title>
+<style>
+  :root {
+    --bg: #0e131d; --card: #171f2f; --card2: #1e293e; --line: #2b3a57;
+    --text: #e9eef7; --muted: #8b9cb9; --accent: #4f8cff; --green: #34c98e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); min-height: 100vh;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 18px 26px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #131a29, #0e131d);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 19px; font-weight: 700; }
+  header .cnt { color: var(--muted); font-size: 13px; }
+  header .spacer { flex: 1; }
+  header button {
+    background: var(--card2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer;
+    transition: all .2s;
+  }
+  header button:hover { border-color: var(--accent); color: #fff; }
+  
+  .container {
+    max-width: 900px;
+    margin: 24px auto;
+    padding: 0 20px;
+  }
+  .list {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  }
+  .item {
+    display: flex; gap: 14px; padding: 14px 20px; cursor: pointer;
+    border-bottom: 1px solid #1c2739; transition: background .15s;
+    text-decoration: none; color: inherit; align-items: center;
+  }
+  .item:last-child { border-bottom: none; }
+  .item:hover { background: var(--card2); }
+  .badge {
+    flex: none; width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%; font-size: 13px;
+    background: rgba(79,140,255,.12); color: var(--accent);
+  }
+  .badge.seen { background: rgba(52,201,142,.15); color: var(--green); }
+  .meta { min-width: 0; flex: 1; }
+  .title { font-size: 15px; line-height: 1.5; word-break: break-word; font-weight: 500; }
+  .title .check { color: var(--green); font-weight: 700; margin-right: 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .sub .size { color: #6fa8ff; }
+  .sub .missing { color: #ff7a7a; }
+  .action-btn {
+    padding: 6px 14px; font-size: 12px; border-radius: 6px;
+    background: rgba(79,140,255,.15); color: var(--accent); border: 1px solid rgba(79,140,255,.3);
+    white-space: nowrap; transition: all .2s;
+  }
+  .item:hover .action-btn { background: var(--accent); color: #fff; }
+  .empty { color: var(--muted); text-align: center; padding: 60px 20px; font-size: 14px; }
+  .empty .big { font-size: 40px; margin-bottom: 12px; opacity: .5; }
+  .loading { color: var(--muted); text-align: center; padding: 60px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 51cg1 媒体库 - 列表</h1>
+  <span class="cnt" id="cnt">加载中…</span>
+  <span class="spacer"></span>
+  <button id="btnReload">↻ 刷新列表</button>
+</header>
+
+<div class="container">
+  <div class="list" id="list">
+    <div class="loading">正在读取数据库…</div>
+  </div>
+</div>
+
+<script>
+const listEl = document.getElementById('list');
+const cntEl = document.getElementById('cnt');
+let items = [];
+
+function fmtSize(n) {
+  if (!n) return '';
+  n = Number(n);
+  if (n > 1073741824) return (n/1073741824).toFixed(2) + ' GB';
+  if (n > 1048576) return (n/1048576).toFixed(1) + ' MB';
+  return (n/1024).toFixed(0) + ' KB';
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderList() {
+  if (!items.length) {
+    listEl.innerHTML = '<div class="empty"><div class="big">📁</div>暂无已下载视频<br>先运行 crawler.py 下载</div>';
+    cntEl.textContent = '共 0 个';
+    return;
+  }
+  const seen = items.filter(i => i.viewed).length;
+  cntEl.textContent = `共 ${items.length} 个 · 已看 ${seen}`;
+  
+  listEl.innerHTML = items.map((it) => {
+    const playUrl = `play.html?file=${encodeURIComponent(it.file)}&title=${encodeURIComponent(it.title || '')}&url=${encodeURIComponent(it.url || '')}&downloaded_at=${encodeURIComponent(it.downloaded_at || '')}&size=${encodeURIComponent(it.size || 0)}&viewed=${it.viewed ? '1' : '0'}`;
+    return `
+      <a class="item" href="${playUrl}">
+        <div class="badge ${it.viewed ? 'seen' : ''}">${it.viewed ? '✓' : '▶'}</div>
+        <div class="meta">
+          <div class="title">${it.viewed ? '<span class="check">✅</span>' : ''}${escapeHtml(it.title)}</div>
+          <div class="sub">
+            <span>${escapeHtml(it.downloaded_at || '')}</span>
+            <span class="size">${fmtSize(it.size)}</span>
+            ${it.exists ? '' : '<span class="missing">⚠ 文件已丢失</span>'}
+          </div>
+        </div
+        <div class="action-btn">播放 ▶</div>
+      </a>
+    `;
+  }).join('');
+}
+
+async function load() {
+  listEl.innerHTML = '<div class="loading">正在读取数据库…</div>';
+  try {
+    const r = await fetch('/api/videos');
+    const data = await r.json();
+    items = data.items || [];
+  } catch (e) {
+    listEl.innerHTML = `<div class="empty">读取失败: ${escapeHtml(String(e))}</div>`;
+    return;
+  }
+  renderList();
+}
+
+document.getElementById('btnReload').addEventListener('click', load);
+load();
+</script>
+</body>
+</html>
