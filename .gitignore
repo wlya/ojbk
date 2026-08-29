@@ -1,0 +1,6 @@
+crawler.log
+downloaded.db
+videos/
+*.db
+*.log
+.venv/
