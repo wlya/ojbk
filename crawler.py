@@ -506,7 +506,7 @@ def process_post(conn, session, url, title, dry_run=False):
         logging.info("[dry-run] 命中: %s | %s", title, url)
         return False
 
-    logging.info("处理帖子: %s | %s", title, url)
+    logging.info("▶️处理帖子: %s | %s", title, url)
     html = request_with_retry(session, url).text
 
     m3u8s = extract_m3u8s(html)
@@ -529,7 +529,7 @@ def process_post(conn, session, url, title, dry_run=False):
         return False
 
     m3u8_url = m3u8s[0]
-    logging.info("找到 m3u8: %s", m3u8_url)
+    logging.info("📌找到 m3u8: %s", m3u8_url)
 
     VIDEO_DIR.mkdir(exist_ok=True)
     stem = safe_filename(title) or f"post_{int(time.time())}"
@@ -544,10 +544,10 @@ def process_post(conn, session, url, title, dry_run=False):
         if size_mb < 0.05:
             raise RuntimeError(f"文件过小({size_mb:.2f} MB), 可能不完整")
         mark_downloaded(conn, url, title, str(out_path))
-        logging.info("完成: %s (%.1f MB)", out_path.name, size_mb)
+        logging.info("✅完成: %s (%.1f MB)", out_path.name, size_mb)
         return True
     except Exception as e:
-        logging.error("下载失败 %s: %s", url, e)
+        logging.error("❌下载失败 %s: %s", url, e)
         for p in VIDEO_DIR.glob(stem + ".*"):
             if p.suffix == ".part":
                 try:
