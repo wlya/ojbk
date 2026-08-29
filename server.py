@@ -97,7 +97,7 @@ app = Flask(__name__, static_folder='html', static_url_path="")
 @app.route("/")
 @app.route("/index.html")
 def index():
-    return redirect(url_for('list.html'))  # 302 重定向
+    return redirect('/list.html')  # 302 重定向
 
 
 @app.route("/api/videos", methods=["GET"])
