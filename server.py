@@ -18,7 +18,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory, send_file
+from flask import Flask, jsonify, request, send_from_directory, send_file, redirect, url_for
 
 WORK_DIR = Path(__file__).resolve().parent
 DB_PATH = WORK_DIR / "downloaded.db"
@@ -97,9 +97,7 @@ app = Flask(__name__, static_folder='html', static_url_path="")
 @app.route("/")
 @app.route("/index.html")
 def index():
-    if VIEWER_HTML.is_file():
-        return send_file(VIEWER_HTML)
-    return "<h1>缺少 viewer.html</h1><p>请把它放在 server.py 同目录</p>", 500
+    return redirect(url_for('list.html'))  # 302 重定向
 
 
 @app.route("/api/videos", methods=["GET"])
