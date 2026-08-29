@@ -50,7 +50,7 @@ except ImportError:
 IMPERSONATE_CANDIDATES = ["chrome133a", "chrome131", "safari18_0", "firefox133"]
 
 # ==================== 可按需修改的配置 ====================
-BASE_URL = "https://51cg1.com"
+BASE_URL = "https://hy2pz9.lgokurmfe.cc"
 CATEGORY_PATH = "/category/wpcz"       # 板块路径
 MAX_PAGES = 4                          # 只爬前 4 页
 KEYWORDS = ["内射", "巨乳", "大奶", "无套", "乘骑"]
