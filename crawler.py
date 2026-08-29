@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-51cg1 每日增量爬虫
+多站点每日增量爬虫
 ==================
 功能:
-  1. 爬取 https://51cg1.com/category/wpcz/ 分页(页面 ID 从 1 开始, 默认只爬前 4 页,
-     新内容出现在第一页最前面)
-  2. 筛选标题含关键词(内射/巨乳/大奶/无套/乘骑)的帖子
+  1. 从 SQLite config 表读取 key='websites' 的 JSON 配置
+  2. 按每个站点的 domain / page_parse / include_keyword / exclude_keyword / max_page 爬取
   3. 提取帖子页面中的 m3u8(HLS) 地址并下载合并到本地 videos/ 目录
-  4. 已下载帖子写入本地 SQLite(downloaded.db), 重复运行自动跳过, 不重复下载
-  5. 过盾后的 Cookie(含 cf_clearance)与浏览器指纹持久化到 SQLite session_state 表,
-     下次运行优先复用, 提升 Cloudflare 信任持续性; 失效时自动重新协商并刷新
+  4. 已下载帖子写入本地 SQLite(downloaded.db), 重复运行自动跳过
+  5. 过盾后的 Cookie(含 cf_clearance)与浏览器指纹持久化到 SQLite session_state 表
   6. 全程模拟浏览器请求头与 TLS 指纹, 带请求间隔与重试
+
+配置示例 (config 表 key='websites' 的 value):
+  domain 支持直接写 {page} 占位, 例如:
+  [{"domain":"https://yvl3e.ibeeuzscf.cc/order/today/page/{page}/",
+    "page_parse":"archives/{\\d+}/",
+    "include_keyword":["内射", "巨乳", "大奶", "无套", "乘骑","美乳","吊钟"],
+    "exclude_keyword":["日本"],
+    "max_page":4}]
 
 用法:
   python crawler.py                  # 单次执行
   python crawler.py --dry-run        # 只列出命中帖子, 不下载(测试用)
-  python crawler.py --max-pages 4    # 指定爬取页数
   python crawler.py --loop           # 常驻模式, 每 24 小时自动执行一次
   python crawler.py --loop --interval-hours 12
-
-定时建议:
-  - Windows 任务计划程序(推荐, 见 README.md)
-  - 或直接使用 --loop 常驻模式
 """
 
 import argparse
@@ -37,7 +38,7 @@ import time
 from datetime import datetime
 from http.cookiejar import Cookie
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 try:
     from curl_cffi import requests
@@ -50,34 +51,19 @@ except ImportError:
 IMPERSONATE_CANDIDATES = ["chrome133a", "chrome131", "safari18_0", "firefox133"]
 
 # ==================== 可按需修改的配置 ====================
-BASE_URL = "https://hy2pz9.lgokurmfe.cc"
-CATEGORY_PATH = "/category/wpcz"       # 板块路径
-MAX_PAGES = 4                          # 只爬前 4 页
-KEYWORDS = ["内射", "巨乳", "大奶", "无套", "乘骑"]
-
 WORK_DIR = Path(__file__).resolve().parent
 VIDEO_DIR = WORK_DIR / "videos"        # 视频保存目录
-DB_PATH = WORK_DIR / "downloaded.db"   # SQLite 数据库(去重)
+DB_PATH = WORK_DIR / "downloaded.db"   # SQLite 数据库(去重 + 配置 + 会话)
 LOG_PATH = WORK_DIR / "crawler.log"
 
 TIMEOUT = 30          # 单请求超时(秒)
 DELAY = 2.0           # 两次请求间隔(秒), 太小容易触发反爬
 SEG_RETRIES = 3       # 下载重试次数
-PROXIES = None        # None = 自动检测系统代理(Windows 注册表/环境变量)
+PROXIES = None        # None = 自动检测系统代理
                       # 需要手动指定时改为, 例如:
                       # {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
                       # 不想用任何代理则改为 {}
 
-HEADERS = {
-    "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
-               "image/avif,image/webp,*/*;q=0.8"),
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Referer": BASE_URL + "/",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "same-origin",
-}
 # =========================================================
 FALLBACK_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
@@ -133,6 +119,61 @@ def init_db():
                 last_ok_at TEXT
             )
         """)
+        # 配置表: key-value, 其中 key='websites' 存放站点列表 JSON
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS config (
+                key TEXT PRIMARY KEY NOT NULL,
+                value TEXT NOT NULL
+            )
+        """)
+
+
+def load_websites_config():
+    """
+    从 config 表读取 key='websites' 的 value (JSON 数组).
+    返回 list[dict], 每项含 domain / page_parse / include_keyword /
+    exclude_keyword / max_page.
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT value FROM config WHERE key = ?", ("websites",)
+        ).fetchone()
+    if not row or not row[0]:
+        logging.error("config 表中未找到 key='websites', 请先写入配置")
+        return []
+    try:
+        data = json.loads(row[0])
+    except json.JSONDecodeError as e:
+        logging.error("websites 配置 JSON 解析失败: %s", e)
+        return []
+    if not isinstance(data, list):
+        logging.error("websites 配置应为 JSON 数组")
+        return []
+    sites = []
+    for i, item in enumerate(data):
+        if not isinstance(item, dict):
+            logging.warning("跳过第 %d 项(非对象): %s", i, item)
+            continue
+        domain = (item.get("domain") or "").strip()
+        if not domain:
+            logging.warning("跳过第 %d 项(缺少 domain)", i)
+            continue
+        page_parse = (item.get("page_parse") or "").strip()
+        include_kw = item.get("include_keyword") or []
+        exclude_kw = item.get("exclude_keyword") or []
+        max_page = int(item.get("max_page") or 4)
+        if not isinstance(include_kw, list):
+            include_kw = [str(include_kw)]
+        if not isinstance(exclude_kw, list):
+            exclude_kw = [str(exclude_kw)]
+        sites.append({
+            "domain": domain,
+            "page_parse": page_parse,
+            "include_keyword": [str(k) for k in include_kw if k],
+            "exclude_keyword": [str(k) for k in exclude_kw if k],
+            "max_page": max(1, max_page),
+        })
+    return sites
 
 
 def is_downloaded(conn, url):
@@ -149,10 +190,6 @@ def mark_downloaded(conn, url, title, video_file):
 
 
 # ----------------- 会话状态持久化(Cookie/指纹) -----------------
-# 说明: Cloudflare 的信任凭证核心是 Cookie(尤其 cf_clearance, 与 UA+TLS 指纹绑定),
-# localStorage/sessionStorage 是浏览器 JS 侧存储, curl_cffi 无 JS 引擎拿不到也用不上,
-# CF 人机验证不依赖它们, 故这里持久化 Cookie + 指纹 + UA 即可达到目的。
-
 
 def cookie_to_dict(c):
     """http.cookiejar.Cookie -> 可序列化 dict"""
@@ -286,7 +323,21 @@ def inject_cookies(session, cookie_dicts):
                 pass
 
 
-def try_restore_session():
+def make_headers(base_url):
+    """按站点生成请求头"""
+    return {
+        "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
+                   "image/avif,image/webp,*/*;q=0.8"),
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Referer": base_url.rstrip("/") + "/",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+    }
+
+
+def try_restore_session(base_url, headers):
     """用库里保存的指纹+Cookie 重建会话并验证; 有效返回会话, 无效返回 None"""
     state = load_session_state()
     if not state or state["impersonate"] not in IMPERSONATE_CANDIDATES:
@@ -300,12 +351,11 @@ def try_restore_session():
     for k, v in state["headers"].items():
         s.headers[k] = v
     try:
-        r = s.get(BASE_URL + "/", headers=HEADERS)
+        r = s.get(base_url.rstrip("/") + "/", headers=headers)
         if not challenge_blocked(r) and r.status_code == 200:
             logging.info("复用入库会话成功: 指纹=%s, Cookie %d 个, 免过盾直连",
                          imp, len(state["cookies"]))
             mark_session_ok()
-            # 服务端可能刷新了 cookie, 同步回库
             save_session_state(imp, s, state["headers"])
             return s
         logging.info("入库会话已失效(状态码 %s), 重新协商指纹", r.status_code)
@@ -314,32 +364,30 @@ def try_restore_session():
     return None
 
 
-def build_session():
+def build_session(base_url, headers):
     """构建会话: 优先复用库里的 Cookie+指纹, 失效再逐个试指纹, 成功后入库"""
-    restored = try_restore_session()
+    restored = try_restore_session(base_url, headers)
     if restored is not None:
         return restored
     proxies = PROXIES if PROXIES is not None else detect_system_proxies()
     for imp in IMPERSONATE_CANDIDATES:
         try:
             s = requests.Session(impersonate=imp, proxies=proxies or None, timeout=TIMEOUT)
-            r = s.get(BASE_URL + "/", headers=HEADERS)
+            r = s.get(base_url.rstrip("/") + "/", headers=headers)
             if challenge_blocked(r):
                 logging.info("指纹 %s 被 Cloudflare 拦截, 换下一个", imp)
                 continue
             logging.info("浏览器指纹选定: %s (状态码 %d)", imp, r.status_code)
-            save_session_state(imp, s, dict(HEADERS))
+            save_session_state(imp, s, dict(headers))
             return s
         except Exception as e:
             logging.warning("指纹 %s 测试失败: %s", imp, e)
-    # 全部被拦时仍返回候选指纹的会话(站点可能临时调整策略, 保留重试空间);
-    # 未验证通过的会话不入库, 避免污染下次复用
     logging.warning("所有浏览器指纹均未通过测试, 使用 %s 继续尝试", IMPERSONATE_CANDIDATES[0])
     return requests.Session(impersonate=IMPERSONATE_CANDIDATES[0],
                             proxies=proxies or None, timeout=TIMEOUT)
 
 
-def request_with_retry(session, url, *, retries=SEG_RETRIES, stream=False, headers=None):
+def request_with_retry(session, url, *, retries=SEG_RETRIES, headers=None):
     """带重试的 GET; 遇到 Cloudflare 挑战页也计入重试"""
     last_err = None
     for attempt in range(1, retries + 1):
@@ -358,10 +406,82 @@ def request_with_retry(session, url, *, retries=SEG_RETRIES, stream=False, heade
     raise RuntimeError(f"重试 {retries} 次仍失败: {url} ({last_err})")
 
 
+# ----------------------- URL / 分页辅助 -----------------------
+
+def parse_site_base(domain_url):
+    """
+    从配置的 domain 解析出:
+      - origin: 协议+主机, 如 https://yvl3e.ibeeuzscf.cc
+      - list_template: 列表页 URL 模板, 用 {page} 占位
+
+    优先使用配置里已写的 {page}:
+      https://xxx/order/today/page/{page}/
+      https://xxx/category/wpcz/{page}/
+    若无 {page}, 再尝试从 .../page/1/ 或末尾数字推导, 否则追加 /page/{page}/
+    """
+    domain_url = (domain_url or "").strip()
+    # 清理多余斜杠: page/{page}// -> page/{page}/
+    domain_url = re.sub(r"(?<!:)/{2,}", "/", domain_url)
+
+    parsed = urlparse(domain_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+
+    if "{page}" in domain_url:
+        return origin, domain_url
+
+    path = parsed.path or "/"
+    # 匹配 /page/数字 或 路径末尾纯数字
+    m = re.search(r"(.*?/page/)(\d+)(/?)$", path, re.I)
+    if m:
+        prefix, _, suffix = m.group(1), m.group(2), m.group(3)
+        template = origin + prefix + "{page}" + (suffix or "/")
+        return origin, template
+    m2 = re.search(r"(.*?/)(\d+)(/?)$", path)
+    if m2 and m2.group(2).isdigit():
+        prefix, _, suffix = m2.group(1), m2.group(2), m2.group(3)
+        template = origin + prefix + "{page}" + (suffix or "/")
+        return origin, template
+    # 无页码: 在 path 后追加 page/{n}/
+    base_path = path.rstrip("/")
+    template = origin + base_path + "/page/{page}/"
+    return origin, template
+
+
+def build_list_url(template, page):
+    """用 page 填充模板; 兼容 {page} 与多余斜杠"""
+    url = template.replace("{page}", str(page))
+    # 再次折叠多余斜杠(保留 https://)
+    url = re.sub(r"(?<!:)/{2,}", "/", url)
+    return url
+
+
+def compile_page_parse(pattern):
+    """
+    把配置里的 page_parse 转成正则.
+    支持常见写法:
+      archives/{\d+}/   -> archives/\d+/
+      archives/(\d+)/   原样使用
+      纯字符串则 re.escape 后匹配
+    """
+    if not pattern:
+        return None
+    # 把 {\d+} 这类占位转成 \d+
+    p = pattern.replace(r"{\d+}", r"\d+")
+    p = p.replace("{d+}", r"\d+")
+    # 若用户已写了正则元字符, 尽量保持; 否则做宽松匹配
+    try:
+        return re.compile(p, re.I)
+    except re.error:
+        return re.compile(re.escape(pattern), re.I)
+
+
 # ----------------------- 页面解析 -----------------------
 
-def extract_posts(html, base_url):
-    """从列表页提取 (帖子URL, 标题) 列表, 保持页面出现顺序"""
+def extract_posts(html, base_url, origin, page_parse_re=None):
+    """
+    从列表页提取 (帖子URL, 标题) 列表, 保持页面出现顺序.
+    若提供 page_parse_re, 则只保留 href 匹配该正则的链接.
+    """
     soup = BeautifulSoup(html, "html.parser")
     found = {}
     for a in soup.find_all("a", href=True):
@@ -373,14 +493,27 @@ def extract_posts(html, base_url):
             continue
         if any(s in href for s in SKIP_HREF_PARTS):
             continue
-        # 只收录本站、非首页的链接
-        if not href.startswith(BASE_URL):
+        # 只收录本站链接
+        if not href.startswith(origin):
             continue
-        path = href[len(BASE_URL):]
+        path = href[len(origin):]
         if path in ("", "/"):
             continue
+        # 若配置了 page_parse, 用正则过滤帖子链接
+        if page_parse_re is not None:
+            if not page_parse_re.search(href) and not page_parse_re.search(path):
+                continue
         found[href] = title
     return list(found.items())
+
+
+def title_matches(title, include_kw, exclude_kw):
+    """包含任一 include 关键词, 且不包含任一 exclude 关键词"""
+    if include_kw and not any(k in title for k in include_kw):
+        return False
+    if exclude_kw and any(k in title for k in exclude_kw):
+        return False
+    return True
 
 
 def extract_m3u8s(html):
@@ -408,12 +541,13 @@ def safe_filename(name, max_len=80):
 # ----------------------- 视频下载 -----------------------
 
 def has_ffmpeg():
+    return False
     return shutil.which("ffmpeg") is not None
 
 
-def download_hls_ffmpeg(m3u8_url, out_path):
+def download_hls_ffmpeg(m3u8_url, out_path, referer_origin):
     """首选方案: ffmpeg 直接拉流合并为 mp4(自动处理加密/多码率)"""
-    header = f"Referer: {BASE_URL}/\r\nUser-Agent: {FALLBACK_UA}"
+    header = f"Referer: {referer_origin}/\r\nUser-Agent: {FALLBACK_UA}"
     cmd = [
         "ffmpeg", "-y",
         "-loglevel", "error", "-stats",
@@ -428,9 +562,9 @@ def download_hls_ffmpeg(m3u8_url, out_path):
     subprocess.run(cmd, check=True, timeout=7200)
 
 
-def download_hls_python(session, m3u8_url, out_base):
+def download_hls_python(session, m3u8_url, out_base, referer_origin):
     """无 ffmpeg 时的回退: 解析 m3u8 -> 逐段下载(AES-128 自动解密) -> 拼接为 .ts"""
-    resp = request_with_retry(session, m3u8_url, headers={"Referer": BASE_URL + "/"})
+    resp = request_with_retry(session, m3u8_url, headers={"Referer": referer_origin + "/"})
     text = resp.text
 
     # master 播放列表 -> 取第一个子播放列表
@@ -450,7 +584,7 @@ def download_hls_python(session, m3u8_url, out_base):
         logging.info("检测到多码率列表, 切换到: %s", sub_url)
         m3u8_url = sub_url
         text = request_with_retry(session, sub_url,
-                                  headers={"Referer": BASE_URL + "/"}).text
+                                  headers={"Referer": referer_origin + "/"}).text
 
     # AES-128 加密流: 取密钥, 逐段解密(需要 pycryptodome)
     key, default_iv, seq0 = None, None, 0
@@ -500,22 +634,21 @@ def download_hls_python(session, m3u8_url, out_base):
 
 # ----------------------- 主流程 -----------------------
 
-def process_post(conn, session, url, title, dry_run=False):
+def process_post(conn, session, url, title, origin, headers, dry_run=False):
     """处理单个命中帖子, 成功下载返回 True"""
     if dry_run:
         logging.info("[dry-run] 命中: %s | %s", title, url)
         return False
 
     logging.info("▶️处理帖子: %s | %s", title, url)
-    html = request_with_retry(session, url).text
+    html = request_with_retry(session, url, headers=headers).text
 
     m3u8s = extract_m3u8s(html)
     if not m3u8s:
-        # m3u8 可能藏在 iframe 播放页里, 逐个尝试(最多 3 个)
         for ifr in extract_iframes(html, url)[:3]:
             try:
                 logging.info("检查 iframe 播放器: %s", ifr)
-                ihtml = request_with_retry(session, ifr).text
+                ihtml = request_with_retry(session, ifr, headers=headers).text
                 found = extract_m3u8s(ihtml)
                 if found:
                     m3u8s = found
@@ -537,9 +670,9 @@ def process_post(conn, session, url, title, dry_run=False):
     try:
         if has_ffmpeg():
             out_path = out_base.with_suffix(".mp4")
-            download_hls_ffmpeg(m3u8_url, out_path)
+            download_hls_ffmpeg(m3u8_url, out_path, origin)
         else:
-            out_path = Path(download_hls_python(session, m3u8_url, out_base))
+            out_path = Path(download_hls_python(session, m3u8_url, out_base, origin))
         size_mb = out_path.stat().st_size / 1048576
         if size_mb < 0.05:
             raise RuntimeError(f"文件过小({size_mb:.2f} MB), 可能不完整")
@@ -557,20 +690,35 @@ def process_post(conn, session, url, title, dry_run=False):
         return False
 
 
-def run_once(args):
-    """执行一轮完整爬取, 返回新增下载数"""
-    init_db()
-    session = build_session()
+def run_site(conn, site, dry_run=False):
+    """爬取单个站点配置, 返回新增下载数"""
+    domain = site["domain"]
+    origin, list_template = parse_site_base(domain)
+    page_parse_re = compile_page_parse(site["page_parse"])
+    include_kw = site["include_keyword"]
+    exclude_kw = site["exclude_keyword"]
+    max_pages = site["max_page"]
+    headers = make_headers(origin)
 
-    conn = sqlite3.connect(DB_PATH)
+    logging.info("=" * 60)
+    logging.info("站点: %s", origin)
+    logging.info("列表模板: %s", list_template)
+    logging.info("page_parse: %s", site["page_parse"] or "(无, 宽松匹配)")
+    logging.info("include: %s | exclude: %s | max_page: %d",
+                 "/".join(include_kw) or "(全部)",
+                 "/".join(exclude_kw) or "(无)",
+                 max_pages)
+
+    session = build_session(origin, headers)
     new_count = 0
     try:
-        for page in range(1, args.max_pages + 1):
-            list_url = f"{BASE_URL}{CATEGORY_PATH}/{page}/"
-            logging.info("== 列表页 %d/%d: %s", page, args.max_pages, list_url)
-            html = request_with_retry(session, list_url).text
-            posts = extract_posts(html, list_url)
-            hits = [(u, t) for u, t in posts if any(k in t for k in KEYWORDS)]
+        for page in range(1, max_pages + 1):
+            list_url = build_list_url(list_template, page)
+            logging.info("== 列表页 %d/%d: %s", page, max_pages, list_url)
+            html = request_with_retry(session, list_url, headers=headers).text
+            posts = extract_posts(html, list_url, origin, page_parse_re)
+            hits = [(u, t) for u, t in posts
+                    if title_matches(t, include_kw, exclude_kw)]
             logging.info("   发现帖子 %d 个, 命中关键词 %d 个", len(posts), len(hits))
             if not hits:
                 time.sleep(DELAY)
@@ -581,30 +729,49 @@ def run_once(args):
                 if is_downloaded(conn, u):
                     continue
                 all_seen = False
-                if process_post(conn, session, u, t, dry_run=args.dry_run):
+                if process_post(conn, session, u, t, origin, headers, dry_run=dry_run):
                     new_count += 1
                 time.sleep(DELAY)
 
-            if all_seen and not args.dry_run:
+            if all_seen and not dry_run:
                 logging.info("   本页命中帖子全部已下载过, 新内容在最前页, 提前停止翻页")
                 break
             time.sleep(DELAY)
     finally:
-        # 本轮结束后把最新 Cookie 同步回库, 供下次运行复用
         try:
             save_session_state(
                 getattr(session, "impersonate", IMPERSONATE_CANDIDATES[0]),
-                session, dict(HEADERS))
+                session, dict(headers))
         except Exception as e:
             logging.warning("会话状态入库失败: %s", e)
-        conn.close()
     return new_count
 
 
+def run_once(args):
+    """执行一轮完整爬取(所有配置站点), 返回新增下载数"""
+    init_db()
+    sites = load_websites_config()
+    if not sites:
+        logging.error("无可用站点配置, 退出")
+        return 0
+
+    conn = sqlite3.connect(DB_PATH)
+    total_new = 0
+    try:
+        for site in sites:
+            try:
+                n = run_site(conn, site, dry_run=args.dry_run)
+                total_new += n
+                logging.info("本站新增 %d 个", n)
+            except Exception as e:
+                logging.error("站点 %s 执行异常: %s", site.get("domain"), e)
+    finally:
+        conn.close()
+    return total_new
+
+
 def main():
-    parser = argparse.ArgumentParser(description="51cg1 每日增量爬虫")
-    parser.add_argument("--max-pages", type=int, default=MAX_PAGES,
-                        help=f"爬取页数(默认 {MAX_PAGES})")
+    parser = argparse.ArgumentParser(description="多站点每日增量爬虫 (配置来自 SQLite config 表)")
     parser.add_argument("--dry-run", action="store_true",
                         help="只列出命中的帖子, 不下载")
     parser.add_argument("--loop", action="store_true",
@@ -614,9 +781,15 @@ def main():
     args = parser.parse_args()
 
     setup_logging()
-    logging.info("关键词: %s | 爬取页数: %d | ffmpeg: %s",
-                 "/".join(KEYWORDS), args.max_pages,
+    init_db()
+    sites = load_websites_config()
+    logging.info("已加载 %d 个站点配置 | ffmpeg: %s",
+                 len(sites),
                  "已安装" if has_ffmpeg() else "未安装(将用纯 Python 模式)")
+    for s in sites:
+        logging.info("  - %s  max_page=%d  include=%s  exclude=%s",
+                     s["domain"], s["max_page"],
+                     s["include_keyword"], s["exclude_keyword"])
 
     if args.loop:
         logging.info("常驻模式: 每 %.1f 小时执行一次, Ctrl+C 退出", args.interval_hours)

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>51cg1 媒体库 - 视频列表</title>
+<title>媒体库 - 视频列表</title>
 <style>
   :root {
     --bg: #0e131d; --card: #171f2f; --card2: #1e293e; --line: #2b3a57;
@@ -118,7 +118,6 @@ function renderList() {
     const playUrl = `play.html?file=${encodeURIComponent(it.file)}&title=${encodeURIComponent(it.title || '')}&url=${encodeURIComponent(it.url || '')}&downloaded_at=${encodeURIComponent(it.downloaded_at || '')}&size=${encodeURIComponent(it.size || 0)}&viewed=${it.viewed ? '1' : '0'}`;
     return `
       <a class="item" href="${playUrl}">
-        <div class="badge ${it.viewed ? 'seen' : ''}">${it.viewed ? '✓' : '▶'}</div>
         <div class="meta">
           <div class="title">${it.viewed ? '<span class="check">✅</span>' : ''}${escapeHtml(it.title)}</div>
           <div class="sub">
@@ -127,7 +126,6 @@ function renderList() {
             ${it.exists ? '' : '<span class="missing">⚠ 文件已丢失</span>'}
           </div>
         </div
-        <div class="action-btn">播放 ▶</div>
       </a>
     `;
   }).join('');
