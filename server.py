@@ -17,6 +17,7 @@ import sqlite3
 import sys
 import webbrowser
 from pathlib import Path
+import json # <--- 新增导入
 
 from flask import Flask, jsonify, request, send_from_directory, send_file, redirect, url_for
 
@@ -33,6 +34,31 @@ VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 VENDOR_DIR.mkdir(parents=True, exist_ok=True)
 
 # ----------------------- 数据访问 -----------------------
+
+# --- 新增: Config 数据库操作 ---
+def get_config_websites():
+    """从数据库读取 websites 配置"""
+    if not DB_PATH.exists():
+        return []
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        row = conn.execute("SELECT value FROM config WHERE key = ?", ("websites",)).fetchone()
+        if row:
+            try:
+                return json.loads(row[0])
+            except json.JSONDecodeError:
+                return []
+        return []
+
+def save_config_websites(data):
+    """保存 websites 配置到数据库"""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.execute(
+            "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+            ("websites", json.dumps(data, ensure_ascii=False, indent=4))
+        )
+# ---------------------------------
 
 def _ensure_view_table(conn):
     conn.execute("""
@@ -98,6 +124,31 @@ app = Flask(__name__, static_folder='html', static_url_path="")
 @app.route("/index.html")
 def index():
     return redirect('/list.html')  # 302 重定向
+
+
+# --- 新增: Config 页面路由 ---
+@app.route("/api/config", methods=["GET"])
+def api_get_config():
+    """获取 websites 配置"""
+    data = get_config_websites()
+    return jsonify({"ok": True, "data": data})
+
+@app.route("/api/config", methods=["POST"])
+def api_save_config():
+    """保存 websites 配置"""
+    if not request.is_json:
+        return jsonify({"ok": False, "error": "Request must be JSON"}), 400
+    
+    data = request.get_json()
+    if not isinstance(data, list):
+        return jsonify({"ok": False, "error": "Data must be a list"}), 400
+        
+    try:
+        save_config_websites(data)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+# ---------------------------------
 
 
 @app.route("/api/videos", methods=["GET"])

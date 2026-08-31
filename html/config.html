@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>网站配置管理</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { margin-top: 0; color: #333; }
+        .site-card { border: 1px solid #ddd; border-radius: 6px; padding: 15px; margin-bottom: 20px; background: #fafafa; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: #555; }
+        input[type="text"], input[type="number"], textarea { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-family: monospace; }
+        textarea { height: 60px; resize: vertical; }
+        .btn { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        .btn:hover { background: #0056b3; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .actions { margin-top: 10px; text-align: right; }
+        .msg { padding: 10px; margin-bottom: 20px; border-radius: 4px; display: none; }
+        .msg-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>网站配置管理</h1>
+        <div id="message" class="msg msg-success">保存成功！</div>
+        
+        <form id="configForm">
+            <div id="sitesContainer"></div>
+            <button type="button" class="btn" onclick="addNewSite()">+ 添加新站点</button>
+            <div class="actions" style="margin-top: 30px;">
+                <button type="submit" class="btn">保存所有配置</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        let sitesData = [];
+
+        // 加载数据
+        async function loadData() {
+            const res = await fetch('/api/config');
+            const json = await res.json();
+            if (json.ok) {
+                sitesData = json.data;
+                renderSites();
+            }
+        }
+
+        // 渲染列表
+        function renderSites() {
+            const container = document.getElementById('sitesContainer');
+            container.innerHTML = '';
+            sitesData.forEach((site, index) => {
+                const div = document.createElement('div');
+                div.className = 'site-card';
+                div.innerHTML = `
+                    <div class="form-group">
+                        <label>域名/链接模板 (domain)</label>
+                        <input type="text" name="domain" value="${site.domain || ''}" placeholder="https://.../{page}/...">
+                    </div>
+                    <div class="form-group">
+                        <label>页面解析正则 (page_parse)</label>
+                        <input type="text" name="page_parse" value="${site.page_parse || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label>包含关键词 (include_keyword, 逗号分隔)</label>
+                        <input type="text" name="include_keyword" value="${(site.include_keyword || []).join(', ')}">
+                    </div>
+                    <div class="form-group">
+                        <label>排除关键词 (exclude_keyword, 逗号分隔)</label>
+                        <input type="text" name="exclude_keyword" value="${(site.exclude_keyword || []).join(', ')}">
+                    </div>
+                    <div class="form-group">
+                        <label>最大页数 (max_page)</label>
+                        <input type="number" name="max_page" value="${site.max_page || 1}" min="1">
+                    </div>
+                    <div class="actions">
+                        <button type="button" class="btn btn-danger" onclick="removeSite(${index})">删除</button>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addNewSite() {
+            sitesData.push({
+                "domain": "",
+                "page_parse": "",
+                "include_keyword": [],
+                "exclude_keyword": [],
+                "max_page": 1
+            });
+            renderSites();
+        }
+
+        function removeSite(index) {
+            if(confirm('确定删除这个配置吗？')) {
+                sitesData.splice(index, 1);
+                renderSites();
+            }
+        }
+
+        // 保存数据
+        document.getElementById('configForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const cards = document.querySelectorAll('.site-card');
+            const newData = [];
+            
+            cards.forEach(card => {
+                const getVal = (name) => card.querySelector(`[name="${name}"]`).value;
+                
+                // 处理数组字段
+                const parseArray = (str) => str.split(',').map(s => s.trim()).filter(s => s);
+
+                newData.push({
+                    domain: getVal('domain'),
+                    page_parse: getVal('page_parse'),
+                    include_keyword: parseArray(getVal('include_keyword')),
+                    exclude_keyword: parseArray(getVal('exclude_keyword')),
+                    max_page: parseInt(getVal('max_page')) || 1
+                });
+            });
+
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newData)
+            });
+            
+            const json = await res.json();
+            if (json.ok) {
+                const msg = document.getElementById('message');
+                msg.style.display = 'block';
+                setTimeout(() => msg.style.display = 'none', 3000);
+            } else {
+                alert('保存失败: ' + json.error);
+            }
+        };
+
+        // 初始化加载
+        loadData();
+    </script>
+</body>
+</html>
