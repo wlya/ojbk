@@ -148,6 +148,42 @@ def api_save_config():
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+def clear_viewed_videos():
+    """清除所有标记为已看的本地视频文件"""
+    if not DB_PATH.exists():
+        return {"deleted_count": 0, "freed_bytes": 0}
+
+    deleted_count = 0
+    freed_bytes = 0
+
+    with sqlite3.connect(DB_PATH) as conn:
+        _ensure_view_table(conn)
+        # 查出所有已观看记录对应的 video_file
+        rows = conn.execute("""
+            SELECT d.video_file
+            FROM downloaded_posts d
+            INNER JOIN viewed_posts v ON v.url = d.url
+            WHERE d.video_file IS NOT NULL AND d.video_file != ''
+        """).fetchall()
+
+        for (video_file,) in rows:
+            if not video_file:
+                continue
+            name = video_file.replace("\\", "/").rsplit("/", 1)[-1]
+            path = VIDEO_DIR / name
+
+            # 确认文件存在且安全在 VIDEO_DIR 目录下
+            if path.is_file() and path.resolve().parent == VIDEO_DIR.resolve():
+                try:
+                    file_size = path.stat().st_size
+                    path.unlink()  # 删除物理文件
+                    deleted_count += 1
+                    freed_bytes += file_size
+                except Exception as e:
+                    print(f"[警告] 删除文件失败 {path}: {e}")
+
+    return {"deleted_count": deleted_count, "freed_bytes": freed_bytes}
 # ---------------------------------
 
 
@@ -171,6 +207,19 @@ def serve_video(filename):
     # conditional=True 会启用 Range Header 断点续传支持
     return send_from_directory(VIDEO_DIR, filename, conditional=True)
 
+# --- 新增: 一键清除已看视频 API ---
+@app.route("/api/clear_viewed", methods=["POST","GET"])
+def post_clear_viewed():
+    """清除所有已看的视频本地文件"""
+    try:
+        result = clear_viewed_videos()
+        return jsonify({
+            "ok": True,
+            "deleted_count": result["deleted_count"],
+            "freed_bytes": result["freed_bytes"]
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/vendor/<path:filename>")
 def serve_vendor(filename):

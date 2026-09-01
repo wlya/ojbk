@@ -78,6 +78,7 @@
   <h1>🎬 51cg1 媒体库 - 列表</h1>
   <span class="cnt" id="cnt">加载中…</span>
   <span class="spacer"></span>
+  <button id="btnClear" onclick="btnClear()">清除已看</button>
   <button id="btnReload">↻ 刷新列表</button>
 </header>
 
@@ -92,6 +93,38 @@ const listEl = document.getElementById('list');
 const cntEl = document.getElementById('cnt');
 let items = [];
 
+async function btnClear(){
+  // 1. 弹出确认框（防止误触）
+  if (!confirm("确定要一键清除所有已看视频的本地文件吗？")) {
+      return;
+  }
+
+  try {
+      // 2. 发送 POST 请求到新增的接口
+      const response = await fetch('/api/clear_viewed', {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json'
+          }
+      });
+
+      const result = await response.json();
+
+      if (result.ok) {
+          // 计算释放了多少 MB 空间
+          const freedMB = (result.freed_bytes / (1024 * 1024)).toFixed(2);
+          alert(`清理成功！\n已删除文件数：${result.deleted_count}\n释放磁盘空间：${freedMB} MB`);
+          
+          // 刷新页面或重新加载视频列表数据
+          location.reload(); 
+      } else {
+          alert("清理失败：" + (result.error || "未知错误"));
+      }
+  } catch (error) {
+      console.error("请求出错：", error);
+      alert("网络请求失败，请检查服务是否正常运行。");
+  }
+}
 function fmtSize(n) {
   if (!n) return '';
   n = Number(n);
