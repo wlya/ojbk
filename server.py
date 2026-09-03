@@ -41,7 +41,6 @@ def get_config_websites():
     if not DB_PATH.exists():
         return []
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         row = conn.execute("SELECT value FROM config WHERE key = ?", ("websites",)).fetchone()
         if row:
             try:
@@ -53,7 +52,6 @@ def get_config_websites():
 def save_config_websites(data):
     """保存 websites 配置到数据库"""
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         conn.execute(
             "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
             ("websites", json.dumps(data, ensure_ascii=False, indent=4))

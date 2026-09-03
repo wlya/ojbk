@@ -1,74 +1,74 @@
-<!DOCTYPE html>
+精简代码，同时改成使用xgplayer的，支持左右手势调节进度，长按倍速<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>视频播放 - 51cg1 媒体库</title>
 <style>
-  :root {
-    --bg: #0e131d; --card: #171f2f; --card2: #1e293e; --line: #2b3a57;
-    --text: #e9eef7; --muted: #8b9cb9; --accent: #4f8cff; --green: #34c98e;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg); color: var(--text); min-height: 100vh;
-    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-  }
-  header {
-    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-    padding: 18px 26px; border-bottom: 1px solid var(--line);
-    background: linear-gradient(180deg, #131a29, #0e131d);
-    position: sticky; top: 0; z-index: 10;
-  }
-  header h1 { font-size: 19px; font-weight: 700; }
-  header .spacer { flex: 1; }
-  .btn-back {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: var(--card2); color: var(--text); border: 1px solid var(--line);
-    border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer;
-    text-decoration: none; transition: all .2s;
-  }
-  .btn-back:hover { border-color: var(--accent); color: #fff; background: var(--accent); }
-  
-  .container {
-    max-width: 1000px;
-    margin: 24px auto;
-    padding: 0 20px;
-  }
-  .player-card {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 24px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-  }
-  .now-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; line-height: 1.5; }
-  .now-sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
-  .video-wrap {
-    background: #000; border-radius: 12px; overflow: hidden;
-    aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center;
-  }
-  video { width: 100%; height: 100%; outline: none; }
-  .tip { color: var(--muted); font-size: 12px; margin-top: 14px; line-height: 1.6; }
-  .tip code { background: var(--card2); border-radius: 4px; padding: 2px 6px; color: var(--accent); }
+ :root {
+  --bg: #0e131d; --card: #171f2f; --card2: #1e293e; --line: #2b3a57;
+  --text: #e9eef7; --muted: #8b9cb9; --accent: #4f8cff; --green: #34c98e;
+ }
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+ body {
+  background: var(--bg); color: var(--text); min-height: 100vh;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+ }
+ header {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 18px 26px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #131a29, #0e131d);
+  position: sticky; top: 0; z-index: 10;
+ }
+ header h1 { font-size: 19px; font-weight: 700; }
+ header .spacer { flex: 1; }
+ .btn-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--card2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer;
+  text-decoration: none; transition: all .2s;
+ }
+ .btn-back:hover { border-color: var(--accent); color: #fff; background: var(--accent); }
+ 
+ .container {
+  max-width: 1000px;
+  margin: 24px auto;
+  padding: 0 20px;
+ }
+ .player-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+ }
+ .now-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; line-height: 1.5; }
+ .now-sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+ .video-wrap {
+  background: #000; border-radius: 12px; overflow: hidden;
+  aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center;
+ }
+ video { width: 100%; height: 100%; outline: none; }
+ .tip { color: var(--muted); font-size: 12px; margin-top: 14px; line-height: 1.6; }
+ .tip code { background: var(--card2); border-radius: 4px; padding: 2px 6px; color: var(--accent); }
 </style>
 </head>
 <body>
 <header>
-  <a href="list.html" class="btn-back">← 返回列表</a>
-  <h1>🎬 51cg1 视频播放器</h1>
-  <span class="spacer"></span>
+ <a href="list.html" class="btn-back">← 返回列表</a>
+ <h1>🎬 51cg1 视频播放器</h1>
+ <span class="spacer"></span>
 </header>
 
 <div class="container">
-  <div class="player-card">
-    <div class="now-title" id="nowTitle">正在加载视频...</div>
-    <div class="now-sub" id="nowSub"></div>
-    <div class="video-wrap">
-      <video id="video" controls preload="metadata"></video>
-    </div>
-    <div class="tip" id="tip">✅ 支持 .ts 格式流媒体播放（基于 mpegts.js）；拖动进度条需要后端支持 HTTP Range。</div>
+ <div class="player-card">
+  <div class="now-title" id="nowTitle">正在加载视频...</div>
+  <div class="now-sub" id="nowSub"></div>
+  <div class="video-wrap">
+   <video id="video" controls preload="metadata"></video>
   </div>
+  <div class="tip" id="tip">✅ 支持 .ts 格式流媒体播放（基于 mpegts.js）；拖动进度条需要后端支持 HTTP Range。</div>
+ </div>
 </div>
 
 <script src="./mpegts.min.js"></script>
@@ -79,97 +79,97 @@ const nowSub = document.getElementById('nowSub');
 let player = null;
 
 function fmtSize(n) {
-  if (!n) return '';
-  n = Number(n);
-  if (n > 1073741824) return (n/1073741824).toFixed(2) + ' GB';
-  if (n > 1048576) return (n/1048576).toFixed(1) + ' MB';
-  return (n/1024).toFixed(0) + ' KB';
+ if (!n) return '';
+ n = Number(n);
+ if (n > 1073741824) return (n/1073741824).toFixed(2) + ' GB';
+ if (n > 1048576) return (n/1048576).toFixed(1) + ' MB';
+ return (n/1024).toFixed(0) + ' KB';
 }
 
 function destroyPlayer() {
-  if (player) {
-    try { player.destroy(); } catch(e){}
-    player = null;
-  }
-  video.removeAttribute('src');
-  try { video.load(); } catch(e){}
+ if (player) {
+  try { player.destroy(); } catch(e){}
+  player = null;
+ }
+ video.removeAttribute('src');
+ try { video.load(); } catch(e){}
 }
 
 async function init() {
-  const params = new URLSearchParams(window.location.search);
-  let file = params.get('file');
-  let title = params.get('title') || file || '未知视频';
-  let url = params.get('url');
-  let downloaded_at = params.get('downloaded_at') || '';
-  let size = params.get('size') || '';
-  let viewed = params.get('viewed') === '1';
+ const params = new URLSearchParams(window.location.search);
+ let file = params.get('file');
+ let title = params.get('title') || file || '未知视频';
+ let url = params.get('url');
+ let downloaded_at = params.get('downloaded_at') || '';
+ let size = params.get('size') || '';
+ let viewed = params.get('viewed') === '1';
 
-  if (!file) {
-    nowTitle.textContent = '❌ 参数错误';
-    nowSub.textContent = 'URL 中未包含视频文件名参数 (?file=...)';
-    return;
-  }
+ if (!file) {
+  nowTitle.textContent = '❌ 参数错误';
+  nowSub.textContent = 'URL 中未包含视频文件名参数 (?file=...)';
+  return;
+ }
 
-  // 如果 url 或下载时间缺失，尝试请求后端补充完整元数据
-  if (!url || !downloaded_at) {
-    try {
-      const res = await fetch('/api/videos');
-      const data = await res.json();
-      const matched = (data.items || []).find(item => item.file === file || (url && item.url === url));
-      if (matched) {
-        title = matched.title || title;
-        url = matched.url || url;
-        downloaded_at = matched.downloaded_at || downloaded_at;
-        size = matched.size || size;
-        viewed = matched.viewed || viewed;
-      }
-    } catch(e) {}
-  }
+ // 如果 url 或下载时间缺失，尝试请求后端补充完整元数据
+ if (!url || !downloaded_at) {
+  try {
+   const res = await fetch('/api/videos');
+   const data = await res.json();
+   const matched = (data.items || []).find(item => item.file === file || (url && item.url === url));
+   if (matched) {
+    title = matched.title || title;
+    url = matched.url || url;
+    downloaded_at = matched.downloaded_at || downloaded_at;
+    size = matched.size || size;
+    viewed = matched.viewed || viewed;
+   }
+  } catch(e) {}
+ }
 
-  nowTitle.textContent = (viewed ? '✅ ' : '') + title;
-  nowSub.textContent = `下载于 ${downloaded_at || '未知时间'} · ${fmtSize(size) || '未知大小'}`;
-  document.title = `${title} - 51cg1 播放器`;
+ nowTitle.textContent = (viewed ? '✅ ' : '') + title;
+ nowSub.textContent = `下载于 ${downloaded_at || '未知时间'} · ${fmtSize(size) || '未知大小'}`;
+ document.title = `${title} - 51cg1 播放器`;
 
-  destroyPlayer();
+ destroyPlayer();
 
-  const videoSrc = '/videos/' + encodeURIComponent(file);
+ const videoSrc = '/videos/' + encodeURIComponent(file);
 
-  // 如果是 .ts 视频，优先使用 mpegts.js 播放
-  if (file.toLowerCase().endsWith('.ts')) {
-    if (window.mpegts && mpegts.getFeatureList().mseLivePlayback) {
-      player = mpegts.createPlayer({
-        type: 'mpegts',
-        isLive: false,
-        url: videoSrc
-      }, {
-        enableStashBuffer: true,
-        stashInitialSize: 384,
-        lazyLoad: true,
-        lazyLoadMaxDuration: 3 * 60,
-      });
-      player.attachMediaElement(video);
-      player.load();
-    } else {
-      video.src = videoSrc; // 兜底：直接传给 video 标签
-    }
+ // 如果是 .ts 视频，优先使用 mpegts.js 播放
+ if (file.toLowerCase().endsWith('.ts')) {
+  if (window.mpegts && mpegts.getFeatureList().mseLivePlayback) {
+   player = mpegts.createPlayer({
+    type: 'mpegts',
+    isLive: false,
+    url: videoSrc
+   }, {
+    enableStashBuffer: true,
+    stashInitialSize: 384,
+    lazyLoad: true,
+    lazyLoadMaxDuration: 3 * 60,
+   });
+   player.attachMediaElement(video);
+   player.load();
   } else {
-    video.src = videoSrc;
+   video.src = videoSrc; // 兜底：直接传给 video 标签
   }
+ } else {
+  video.src = videoSrc;
+ }
 
-  video.play().catch(() => {});
+ video.play().catch(() => {});
 
-  // 向服务器标记已看
-  if (url) {
-    fetch('/api/mark_viewed', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: url })
-    }).then(r => r.json()).then(() => {
-      if (!viewed) {
-        nowTitle.textContent = '✅ ' + title;
-      }
-    }).catch(() => {});
-  }
+ // 向服务器标记已看
+ if (url) {
+  fetch('/api/mark_viewed', {
+   method: 'POST',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify({ url: url })
+  }).then(r => r.json()).then(() => {
+   if (!viewed) {
+    nowTitle.textContent = '✅ ' + title;
+   }
+  }).catch(() => {});
+ }
 }
 
 window.addEventListener('DOMContentLoaded', init);

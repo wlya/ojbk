@@ -17,6 +17,7 @@ cfg = [
     }
 ]
 with sqlite3.connect(DB) as conn:
+    # 新建config表 & 初始化
     conn.execute("""
         CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)
     """)
@@ -24,3 +25,28 @@ with sqlite3.connect(DB) as conn:
         "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
         ("websites", json.dumps(cfg, ensure_ascii=False))
     )
+
+    # 新建cdownloaded_posts表 & 初始化
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS downloaded_posts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url TEXT UNIQUE NOT NULL,
+            title TEXT,
+            video_file TEXT,
+            viewed_at TEXT DEFAULT NULL,
+            downloaded_at TEXT DEFAULT (datetime('now', 'localtime')),
+            deleted INTEGER DEFAULT 0
+        )
+    """)
+    # Cloudflare/站点会话状态: 指纹 + Cookie(含 cf_clearance) + 请求头
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS session_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            impersonate TEXT NOT NULL,
+            cookies TEXT NOT NULL,
+            headers TEXT,
+            user_agent TEXT,
+            saved_at TEXT DEFAULT (datetime('now', 'localtime')),
+            last_ok_at TEXT
+        )
+    """)

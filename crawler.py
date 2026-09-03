@@ -95,40 +95,6 @@ def setup_logging():
 
 
 # ----------------------- 数据库 -----------------------
-
-def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS downloaded_posts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT UNIQUE NOT NULL,
-                title TEXT,
-                video_file TEXT,
-                viewed_at TEXT DEFAULT NULL,
-                downloaded_at TEXT DEFAULT (datetime('now', 'localtime'))
-            )
-        """)
-        # Cloudflare/站点会话状态: 指纹 + Cookie(含 cf_clearance) + 请求头
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS session_state (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                impersonate TEXT NOT NULL,
-                cookies TEXT NOT NULL,
-                headers TEXT,
-                user_agent TEXT,
-                saved_at TEXT DEFAULT (datetime('now', 'localtime')),
-                last_ok_at TEXT
-            )
-        """)
-        # 配置表: key-value, 其中 key='websites' 存放站点列表 JSON
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS config (
-                key TEXT PRIMARY KEY NOT NULL,
-                value TEXT NOT NULL
-            )
-        """)
-
-
 def load_websites_config():
     """
     从 config 表读取 key='websites' 的 value (JSON 数组).
@@ -750,7 +716,6 @@ def run_site(conn, site, dry_run=False):
 
 def run_once(args):
     """执行一轮完整爬取(所有配置站点), 返回新增下载数"""
-    init_db()
     sites = load_websites_config()
     if not sites:
         logging.error("无可用站点配置, 退出")
@@ -782,7 +747,6 @@ def main():
     args = parser.parse_args()
 
     setup_logging()
-    init_db()
     sites = load_websites_config()
     logging.info("已加载 %d 个站点配置 | ffmpeg: %s",
                  len(sites),
