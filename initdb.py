@@ -1,5 +1,5 @@
 import sqlite3, json
-DB = "downloaded.db"
+DB = "mydb.sqlite"
 cfg = [
     {
         "domain": "https://yvl3e.ibeeuzscf.cc/order/today/page/{page}//",

@@ -22,7 +22,7 @@ import json # <--- 新增导入
 from flask import Flask, jsonify, request, send_from_directory, send_file, redirect, url_for
 
 WORK_DIR = Path(__file__).resolve().parent
-DB_PATH = WORK_DIR / "downloaded.db"
+DB_PATH = WORK_DIR / "mydb.sqlite"
 VIDEO_DIR = WORK_DIR / "videos"
 VIEWER_HTML = WORK_DIR / "viewer.html"
 VENDOR_DIR = WORK_DIR / "vendor"
@@ -60,29 +60,18 @@ def save_config_websites(data):
         )
 # ---------------------------------
 
-def _ensure_view_table(conn):
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS viewed_posts (
-            url TEXT PRIMARY KEY,
-            viewed_at TEXT DEFAULT (datetime('now', 'localtime'))
-        )
-    """)
-
 
 def list_videos():
     """读取数据库 + 磁盘状态, 按下载时间倒序返回视频列表"""
     if not DB_PATH.exists():
         return []
     with sqlite3.connect(DB_PATH) as conn:
-        _ensure_view_table(conn)
         rows = conn.execute("""
-            SELECT d.url, d.title, d.video_file, d.downloaded_at, v.viewed_at
-            FROM downloaded_posts d
-            LEFT JOIN viewed_posts v ON v.url = d.url
-            ORDER BY d.downloaded_at DESC, d.id DESC
+            SELECT id, url, title, video_file, downloaded_at, viewed_at
+            FROM downloaded_posts WHERE deleted = 0 ORDER BY downloaded_at DESC, id DESC
         """).fetchall()
     items = []
-    for url, title, video_file, downloaded_at, viewed_at in rows:
+    for id, url, title, video_file, downloaded_at, viewed_at in rows:
         name = ""
         if video_file:
             name = video_file.replace("\\", "/").rsplit("/", 1)[-1]
@@ -108,10 +97,9 @@ def mark_viewed(url: str):
     if not url:
         return None
     with sqlite3.connect(DB_PATH) as conn:
-        _ensure_view_table(conn)
-        conn.execute("INSERT OR IGNORE INTO viewed_posts (url) VALUES (?)", (url,))
+        conn.execute("UPDATE downloaded_posts SET viewed_at = CURRENT_TIMESTAMP WHERE url = ?", (url,))
         row = conn.execute(
-            "SELECT viewed_at FROM viewed_posts WHERE url = ?", (url,)).fetchone()
+            "SELECT viewed_at FROM downloaded_posts WHERE url = ?", (url,)).fetchone()
     return row[0] if row else None
 
 
@@ -158,21 +146,20 @@ def clear_viewed_videos():
     freed_bytes = 0
 
     with sqlite3.connect(DB_PATH) as conn:
-        _ensure_view_table(conn)
         # 查出所有已观看记录对应的 video_file
         rows = conn.execute("""
-            SELECT d.video_file
+            SELECT d.video_file, d.url
             FROM downloaded_posts d
-            INNER JOIN viewed_posts v ON v.url = d.url
-            WHERE d.video_file IS NOT NULL AND d.video_file != ''
+            WHERE d.viewed_at IS NOT NULL AND d.video_file IS NOT NULL AND d.video_file != ''
         """).fetchall()
 
-        for (video_file,) in rows:
+        for (video_file,url) in rows:
             if not video_file:
                 continue
             name = video_file.replace("\\", "/").rsplit("/", 1)[-1]
             path = VIDEO_DIR / name
-
+            conn.execute("UPDATE downloaded_posts SET deleted = 1 WHERE url = ?", (url,))
+            
             # 确认文件存在且安全在 VIDEO_DIR 目录下
             if path.is_file() and path.resolve().parent == VIDEO_DIR.resolve():
                 try:
@@ -228,7 +215,7 @@ def serve_vendor(filename):
 
 def main():
     ap = argparse.ArgumentParser(description="51cg1 媒体库服务 (Flask)")
-    ap.add_argument("--host", default="127.0.0.1", help="监听地址(默认 127.0.0.1)")
+    ap.add_argument("--host", default="0.0.0.0", help="监听地址(默认 0.0.0.0)")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--no-open", action="store_true", help="不自动打开浏览器")
     args = ap.parse_args()

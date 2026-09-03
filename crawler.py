@@ -53,8 +53,8 @@ IMPERSONATE_CANDIDATES = ["chrome133a", "chrome131", "safari18_0", "firefox133"]
 # ==================== 可按需修改的配置 ====================
 WORK_DIR = Path(__file__).resolve().parent
 VIDEO_DIR = WORK_DIR / "videos"        # 视频保存目录
-DB_PATH = WORK_DIR / "downloaded.db"   # SQLite 数据库(去重 + 配置 + 会话)
-LOG_PATH = WORK_DIR / "crawler.log"
+DB_PATH = WORK_DIR / "mydb.sqlite"   # SQLite 数据库(去重 + 配置 + 会话)
+LOG_PATH = WORK_DIR / "log.log"
 
 TIMEOUT = 30          # 单请求超时(秒)
 DELAY = 2.0           # 两次请求间隔(秒), 太小容易触发反爬
@@ -104,6 +104,7 @@ def init_db():
                 url TEXT UNIQUE NOT NULL,
                 title TEXT,
                 video_file TEXT,
+                viewed_at TEXT DEFAULT NULL,
                 downloaded_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
         """)
