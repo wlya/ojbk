@@ -2,44 +2,55 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>视频播放 - 51cg1 媒体库</title>
-<!-- xgplayer 3.x 样式 -->
-<link rel="stylesheet" href="./index.min.css">
 <style>
-:root{--bg:#0e131d;--card:#171f2f;--card2:#1e293e;--line:#2b3a57;
-      --text:#e9eef7;--muted:#8b9cb9;--accent:#4f8cff}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);min-height:100vh;
-     font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
-header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-       padding:18px 26px;border-bottom:1px solid var(--line);
-       background:linear-gradient(180deg,#131a29,#0e131d);
-       position:sticky;top:0;z-index:10}
-header h1{font-size:19px;font-weight:700}
-.spacer{flex:1}
-.btn-back{display:inline-flex;align-items:center;gap:6px;
-          background:var(--card2);color:var(--text);border:1px solid var(--line);
-          border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;
-          text-decoration:none;transition:all .2s}
-.btn-back:hover{border-color:var(--accent);color:#fff;background:var(--accent)}
-.container{max-width:1000px;margin:24px auto;padding:0 20px}
-.player-card{background:var(--card);border:1px solid var(--line);
-             border-radius:12px;padding:24px;box-shadow:0 8px 24px rgba(0,0,0,.3)}
-.now-title{font-size:18px;font-weight:600;margin-bottom:6px;line-height:1.5}
-.now-sub{color:var(--muted);font-size:13px;margin-bottom:16px}
-/* 播放器容器 */
-#player-wrap{position:relative;border-radius:12px;overflow:hidden;
-             touch-action:pan-y;          /* 只允许垂直滚动，水平交给手势 */
-             -webkit-user-select:none;user-select:none}
-.tip{color:var(--muted);font-size:12px;margin-top:14px;line-height:1.6}
-.tip code{background:var(--card2);border-radius:4px;padding:2px 6px;color:var(--accent)}
-/* 手势反馈气泡 */
-#g-toast{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-         background:rgba(0,0,0,.78);color:#fff;padding:10px 24px;
-         border-radius:8px;font-size:16px;pointer-events:none;
-         opacity:0;transition:opacity .25s;z-index:200;white-space:nowrap}
-#g-toast.show{opacity:1}
+  :root {
+    --bg: #0e131d; --card: #171f2f; --card2: #1e293e; --line: #2b3a57;
+    --text: #e9eef7; --muted: #8b9cb9; --accent: #4f8cff; --green: #34c98e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); min-height: 100vh;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 18px 26px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #131a29, #0e131d);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 19px; font-weight: 700; }
+  header .spacer { flex: 1; }
+  .btn-back {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--card2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer;
+    text-decoration: none; transition: all .2s;
+  }
+  .btn-back:hover { border-color: var(--accent); color: #fff; background: var(--accent); }
+  
+  .container {
+    max-width: 1000px;
+    margin: 24px auto;
+    padding: 0 20px;
+  }
+  .player-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+  .now-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; line-height: 1.5; }
+  .now-sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .video-wrap {
+    background: #000; border-radius: 12px; overflow: hidden;
+    aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center;
+  }
+  video { width: 100%; height: 100%; outline: none; }
+  .tip { color: var(--muted); font-size: 12px; margin-top: 14px; line-height: 1.6; }
+  .tip code { background: var(--card2); border-radius: 4px; padding: 2px 6px; color: var(--accent); }
 </style>
 </head>
 <body>
@@ -53,192 +64,116 @@ header h1{font-size:19px;font-weight:700}
   <div class="player-card">
     <div class="now-title" id="nowTitle">正在加载视频...</div>
     <div class="now-sub" id="nowSub"></div>
-    <div id="player-wrap">
-      <div id="g-toast"></div>
+    <div class="video-wrap">
+      <video id="video" controls preload="metadata"></video>
     </div>
-    <div class="tip">
-      ✅ .ts 流媒体（mpegts.js + MSE） · 左右滑动调进度 · 长按 3× 倍速
-    </div>
+    <div class="tip" id="tip">✅ 支持 .ts 格式流媒体播放（基于 mpegts.js）；拖动进度条需要后端支持 HTTP Range。</div>
   </div>
 </div>
 
-<!-- ① mpegts 本地解码 -->
 <script src="./mpegts.min.js"></script>
-<!-- ② xgplayer 3.x（UMD 构建，全局变量 window.Player） -->
-<script src="./xgplayer.min.js"></script>
-<!-- ③ AlloyFinger 手势库 -->
-<script src="./alloy_finger.min.js"></script>
-
 <script>
-const $  = id => document.getElementById(id);
-const nowTitle = $('nowTitle'), nowSub = $('nowSub'), toast = $('g-toast');
+const video = document.getElementById('video');
+const nowTitle = document.getElementById('nowTitle');
+const nowSub = document.getElementById('nowSub');
+let player = null;
 
-let player   = null;   // xgplayer 实例
-let tsPlayer = null;   // mpegts.js 实例
-
-/* ─── 工具 ─── */
-const fmtSize = n => {
-  n = +n; if (!n) return '';
-  if (n > 1073741824) return (n / 1073741824).toFixed(2) + ' GB';
-  if (n > 1048576)    return (n / 1048576).toFixed(1)   + ' MB';
-  return (n / 1024).toFixed(0) + ' KB';
-};
-const fmtTime = s => {
-  if (!s || !isFinite(s)) return '0:00';
-  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-};
-const showTip = (msg, dur = 1200) => {
-  toast.textContent = msg;
-  toast.classList.add('show');
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => toast.classList.remove('show'), dur);
-};
-
-/* ─── 销毁 ─── */
-function destroy () {
-  if (tsPlayer) { try { tsPlayer.destroy(); } catch (e) {} tsPlayer = null; }
-  if (player)   { try { player.destroy();   } catch (e) {} player   = null; }
+function fmtSize(n) {
+  if (!n) return '';
+  n = Number(n);
+  if (n > 1073741824) return (n/1073741824).toFixed(2) + ' GB';
+  if (n > 1048576) return (n/1048576).toFixed(1) + ' MB';
+  return (n/1024).toFixed(0) + ' KB';
 }
 
-/* ─── AlloyFinger 手势 ─── */
-function bindGestures () {
-  const el = player.root;               // xgplayer 根节点
-  let x0 = 0, t0 = 0;
-  let seeking = false, fast = false, lt = null;
-  const SPEED = 3;                      // 长按倍速
-
-  new AlloyFinger(el, {
-
-    /* 按下：记录起点，启动长按计时 */
-    touchStart (e) {
-      if (e.target.closest('.xgplayer-controls')) return;   // 跳过控制栏
-      x0 = e.touches[0].clientX;
-      t0 = player.currentTime || 0;
-      seeking = false;
-      lt = setTimeout(() => {
-        fast = true;
-        player.playbackRate = SPEED;
-        showTip(`⏩ ${SPEED}× 倍速`, 9999);
-      }, 600);
-    },
-
-    /* 移动：水平位移 → 预览进度 */
-    touchMove (e) {
-      const dx = e.touches[0].clientX - x0;
-      if (Math.abs(dx) < 12) return;          // 阈值
-      if (lt) { clearTimeout(lt); lt = null; } // 有位移 → 取消长按
-      if (fast) return;                        // 倍速中不做 seek
-      seeking = true;
-      const dur = player.duration || 0;
-      if (dur > 0) {
-        const nt = Math.max(0, Math.min(dur, t0 + dx / el.clientWidth * dur * 0.5));
-        showTip(`⏩ ${fmtTime(nt)} / ${fmtTime(dur)}`, 9999);
-      }
-    },
-
-    /* 抬起：确认 seek 或恢复倍速 */
-    touchEnd (e) {
-      if (lt) { clearTimeout(lt); lt = null; }
-      if (fast) {                              // 长按结束 → 恢复原速
-        fast = false;
-        player.playbackRate = 1;
-        showTip('▶️ 正常速度');
-        return;
-      }
-      if (seeking) {
-        const dx  = (e.changedTouches[0] || {}).clientX - x0;
-        const dur = player.duration || 0;
-        if (dur > 0 && Math.abs(dx) > 12) {
-          player.currentTime = Math.max(0, Math.min(dur, t0 + dx / el.clientWidth * dur * 0.5));
-        }
-        seeking = false;
-      }
-    }
-  });
+function destroyPlayer() {
+  if (player) {
+    try { player.destroy(); } catch(e){}
+    player = null;
+  }
+  video.removeAttribute('src');
+  try { video.load(); } catch(e){}
 }
 
-/* ─── 初始化 ─── */
-async function init () {
-  const p = new URLSearchParams(location.search);
-  let file  = p.get('file');
-  let title = p.get('title') || file || '未知视频';
-  let url   = p.get('url');
-  let dt    = p.get('downloaded_at') || '';
-  let size  = p.get('size') || '';
-  let viewed = p.get('viewed') === '1';
+async function init() {
+  const params = new URLSearchParams(window.location.search);
+  let file = params.get('file');
+  let title = params.get('title') || file || '未知视频';
+  let url = params.get('url');
+  let downloaded_at = params.get('downloaded_at') || '';
+  let size = params.get('size') || '';
+  let viewed = params.get('viewed') === '1';
 
   if (!file) {
     nowTitle.textContent = '❌ 参数错误';
-    nowSub.textContent   = '缺少 ?file= 参数';
+    nowSub.textContent = 'URL 中未包含视频文件名参数 (?file=...)';
     return;
   }
 
-  /* 补全元数据 */
-  if (!url || !dt) {
+  // 如果 url 或下载时间缺失，尝试请求后端补充完整元数据
+  if (!url || !downloaded_at) {
     try {
-      const d = await (await fetch('/api/videos')).json();
-      const m = (d.items || []).find(i => i.file === file || (url && i.url === url));
-      if (m) { title = m.title || title; url = m.url || url;
-               dt = m.downloaded_at || dt; size = m.size || size; viewed = m.viewed || viewed; }
-    } catch (e) {}
+      const res = await fetch('/api/videos');
+      const data = await res.json();
+      const matched = (data.items || []).find(item => item.file === file || (url && item.url === url));
+      if (matched) {
+        title = matched.title || title;
+        url = matched.url || url;
+        downloaded_at = matched.downloaded_at || downloaded_at;
+        size = matched.size || size;
+        viewed = matched.viewed || viewed;
+      }
+    } catch(e) {}
   }
 
   nowTitle.textContent = (viewed ? '✅ ' : '') + title;
-  nowSub.textContent   = `下载于 ${dt || '未知'} · ${fmtSize(size) || '未知大小'}`;
-  document.title       = `${title} - 51cg1 播放器`;
+  nowSub.textContent = `下载于 ${downloaded_at || '未知时间'} · ${fmtSize(size) || '未知大小'}`;
+  document.title = `${title} - 51cg1 播放器`;
 
-  destroy();
+  destroyPlayer();
 
-  const src  = '/videos/' + encodeURIComponent(file);
-  const isTs = /\.ts$/i.test(file);
+  const videoSrc = '/videos/' + encodeURIComponent(file);
 
-  /* ① 创建 xgplayer（.ts 时不传 url，留给 mpegts 接管） */
-  player = new Player({
-    el        : $('player-wrap'),
-    url       : isTs ? '' : src,
-    fluid     : true,
-    autoplay  : !isTs,
-    volume    : 0.8,
-    playsinline: true,
-    playbackRate: [0.5, 1, 1.5, 2, 3],
-    lang      : 'zh-cn'
-  });
-
-  player.on('ready', () => {
-    const video = player.video;
-    if (!video) return;
-
-    /* ② .ts 文件用 mpegts.js 走 MSE */
-    if (isTs && window.mpegts && mpegts.getFeatureList().mseLivePlayback) {
-      tsPlayer = mpegts.createPlayer(
-        { type: 'mpegts', isLive: false, url: src },
-        { enableStashBuffer: true, stashInitialSize: 384,
-          lazyLoad: true, lazyLoadMaxDuration: 180 }
-      );
-      tsPlayer.attachMediaElement(video);
-      tsPlayer.load();
-      tsPlayer.play().catch(() => {});
+  // 如果是 .ts 视频，优先使用 mpegts.js 播放
+  if (file.toLowerCase().endsWith('.ts')) {
+    if (window.mpegts && mpegts.getFeatureList().mseLivePlayback) {
+      player = mpegts.createPlayer({
+        type: 'mpegts',
+        isLive: false,
+        url: videoSrc
+      }, {
+        enableStashBuffer: true,
+        stashInitialSize: 384,
+        lazyLoad: true,
+        lazyLoadMaxDuration: 3 * 60,
+      });
+      player.attachMediaElement(video);
+      player.load();
+    } else {
+      video.src = videoSrc; // 兜底：直接传给 video 标签
     }
+  } else {
+    video.src = videoSrc;
+  }
 
-    /* ③ 绑定手势 */
-    if (window.AlloyFinger) bindGestures();
-  });
+  video.play().catch(() => {});
 
-  /* 标记已看 */
+  // 向服务器标记已看
   if (url) {
     fetch('/api/mark_viewed', {
-      method : 'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body   : JSON.stringify({ url })
-    })
-    .then(r => r.json())
-    .then(() => { if (!viewed) nowTitle.textContent = '✅ ' + title; })
-    .catch(() => {});
+      body: JSON.stringify({ url: url })
+    }).then(r => r.json()).then(() => {
+      if (!viewed) {
+        nowTitle.textContent = '✅ ' + title;
+      }
+    }).catch(() => {});
   }
 }
 
-addEventListener('DOMContentLoaded', init);
-addEventListener('beforeunload',    destroy);
+window.addEventListener('DOMContentLoaded', init);
+window.addEventListener('beforeunload', destroyPlayer);
 </script>
 </body>
 </html>
