@@ -89,7 +89,7 @@
 
 <script>
   let syncElement = document.getElementById('btnSync')
-  setInterval(async () =>  {
+  setTimeout(async () =>  {
     // 定时检查刷新进程是否正在刷新
     const response = await fetch('/api/sync/status', {
         method: 'GET',
