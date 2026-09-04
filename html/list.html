@@ -1,184 +1,191 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>媒体库 - 视频列表</title>
-<style>
-  :root {
-    --bg: #0e131d; --card: #171f2f; --card2: #1e293e; --line: #2b3a57;
-    --text: #e9eef7; --muted: #8b9cb9; --accent: #4f8cff; --green: #34c98e;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg); color: var(--text); min-height: 100vh;
-    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-  }
-  header {
-    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-    padding: 18px 26px; border-bottom: 1px solid var(--line);
-    background: linear-gradient(180deg, #131a29, #0e131d);
-    position: sticky; top: 0; z-index: 10;
-  }
-  header h1 { font-size: 19px; font-weight: 700; }
-  header .cnt { color: var(--muted); font-size: 13px; }
-  header .spacer { flex: 1; }
-  header button {
-    background: var(--card2); color: var(--text); border: 1px solid var(--line);
-    border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer;
-    transition: all .2s;
-  }
-  header button:hover { border-color: var(--accent); color: #fff; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>媒体库 - 视频列表</title>
+  <!-- Element Plus 基础样式与暗黑主题样式 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/theme-chalk/dark/css-vars.css" />
   
-  .container {
-    max-width: 900px;
-    margin: 24px auto;
-    padding: 0 20px;
-  }
-  .list {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.25);
-  }
-  .item {
-    display: flex; gap: 14px; padding: 14px 20px; cursor: pointer;
-    border-bottom: 1px solid #1c2739; transition: background .15s;
-    text-decoration: none; color: inherit; align-items: center;
-  }
-  .item:last-child { border-bottom: none; }
-  .item:hover { background: var(--card2); }
-  .badge {
-    flex: none; width: 28px; height: 28px;
-    display: flex; align-items: center; justify-content: center;
-    border-radius: 50%; font-size: 13px;
-    background: rgba(79,140,255,.12); color: var(--accent);
-  }
-  .badge.seen { background: rgba(52,201,142,.15); color: var(--green); }
-  .meta { min-width: 0; flex: 1; }
-  .title { font-size: 15px; line-height: 1.5; word-break: break-word; font-weight: 500; }
-  .title .check { color: var(--green); font-weight: 700; margin-right: 4px; }
-  .sub { color: var(--muted); font-size: 12px; margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
-  .sub .size { color: #6fa8ff; }
-  .sub .missing { color: #ff7a7a; }
-  .action-btn {
-    padding: 6px 14px; font-size: 12px; border-radius: 6px;
-    background: rgba(79,140,255,.15); color: var(--accent); border: 1px solid rgba(79,140,255,.3);
-    white-space: nowrap; transition: all .2s;
-  }
-  .item:hover .action-btn { background: var(--accent); color: #fff; }
-  .empty { color: var(--muted); text-align: center; padding: 60px 20px; font-size: 14px; }
-  .empty .big { font-size: 40px; margin-bottom: 12px; opacity: .5; }
-  .loading { color: var(--muted); text-align: center; padding: 60px 0; font-size: 14px; }
-</style>
+  <!-- Vue 3 & Element Plus & Icons JS -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
 </head>
 <body>
-<header>
-  <h1>🎬 51cg1 媒体库 - 列表</h1>
-  <span class="cnt" id="cnt">加载中…</span>
-  <span class="spacer"></span>
-  <button id="btnClear" onclick="btnClear()">清除已看</button>
-  <button id="btnReload">↻ 刷新列表</button>
-</header>
+  <div id="app">
+    <el-container style="min-height: 100vh;">
+      <!-- 顶栏 header -->
+      <el-header style="border-bottom: 1px solid var(--el-border-color-lighter); display: flex; align-items: center; justify-content: space-between;">
+        <el-space size="medium">
+          <span style="font-size: 18px; font-weight: bold;">🎬 51cg1 媒体库 - 列表</span>
+          <el-tag type="info" effect="plain" round>
+            {{ loading ? '加载中…' : `共 ${items.length} 个 · 已看 ${seenCount}` }}
+          </el-tag>
+        </el-space>
+        
+        <el-space>
+          <el-button type="danger" plain @click="btnClear">清除已看</el-button>
+          <el-button type="primary" icon="Refresh" @click="load">刷新列表</el-button>
+        </el-space>
+      </el-header>
 
-<div class="container">
-  <div class="list" id="list">
-    <div class="loading">正在读取数据库…</div>
+      <!-- 主内容区 -->
+      <el-main>
+        <el-row justify="center">
+          <el-col :xs="24" :sm="22" :md="20" :lg="18">
+            <el-card v-loading="loading" body-style="padding: 0;">
+              <!-- 视频列表表格 -->
+              <el-table
+                v-if="items.length > 0"
+                :data="items"
+                style="width: 100%"
+                @row-click="playVideo"
+                row-style="cursor: pointer"
+              >
+                <el-table-column label="视频标题" min-width="260">
+                  <template #default="{ row }">
+                    <el-space wrap>
+                      <el-tag v-if="row.viewed" type="success" size="small" effect="light">已看</el-tag>
+                      <span :style="{ fontWeight: row.viewed ? 'normal' : '500' }">{{ row.title }}</span>
+                    </el-space>
+                  </template>
+                </el-table-column>
+
+                <el-table-column prop="downloaded_at" label="下载时间" width="180">
+                  <template #default="{ row }">
+                    <el-text type="info" size="small">{{ row.downloaded_at }}</el-text>
+                  </template>
+                </el-table-column>
+
+                <el-table-column label="大小" width="110">
+                  <template #default="{ row }">
+                    <el-text type="primary" size="small">{{ fmtSize(row.size) }}</el-text>
+                  </template>
+                </el-table-column>
+
+                <el-table-column label="状态" width="120">
+                  <template #default="{ row }">
+                    <el-tag v-if="!row.exists" type="danger" size="small" effect="dark">⚠ 文件丢失</el-tag>
+                    <el-tag v-else type="info" size="small" effect="plain">正常</el-tag>
+                  </template>
+                </el-table-column>
+
+                <el-table-column align="right" width="90">
+                  <template #default="{ row }">
+                    <el-button type="primary" size="small" link>播放</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+
+              <!-- 空状态 -->
+              <el-empty
+                v-else-if="!loading"
+                description="暂无已下载视频，先运行 crawler.py 下载"
+              ></el-empty>
+            </el-card>
+          </el-col>
+        </row>
+      </el-main>
+    </el-container>
   </div>
-</div>
 
-<script>
-const listEl = document.getElementById('list');
-const cntEl = document.getElementById('cnt');
-let items = [];
+  <script>
+    const { createApp, ref, computed, onMounted } = Vue;
+    const { ElMessageBox, ElMessage } = ElementPlus;
 
-async function btnClear(){
-  // 1. 弹出确认框（防止误触）
-  if (!confirm("确定要一键清除所有已看视频的本地文件吗？")) {
-      return;
-  }
+    const app = createApp({
+      setup() {
+        const items = ref([]);
+        const loading = ref(true);
 
-  try {
-      // 2. 发送 POST 请求到新增的接口
-      const response = await fetch('/api/clear_viewed', {
-          method: 'POST',
-          headers: {
-              'Content-Type': 'application/json'
+        const seenCount = computed(() => items.value.filter(i => i.viewed).length);
+
+        const fmtSize = (n) => {
+          if (!n) return '';
+          n = Number(n);
+          if (n > 1073741824) return (n / 1073741824).toFixed(2) + ' GB';
+          if (n > 1048576) return (n / 1048576).toFixed(1) + ' MB';
+          return (n / 1024).toFixed(0) + ' KB';
+        };
+
+        const load = async () => {
+          loading.value = true;
+          try {
+            const r = await fetch('/api/videos');
+            const data = await r.json();
+            items.value = data.items || [];
+          } catch (e) {
+            ElMessage.error('读取数据库失败: ' + String(e));
+          } finally {
+            loading.value = false;
           }
-      });
+        };
 
-      const result = await response.json();
+        const btnClear = async () => {
+          try {
+            await ElMessageBox.confirm(
+              '确定要一键清除所有已看视频的本地文件吗？',
+              '警告',
+              {
+                confirmButtonText: '确定清除',
+                cancelButtonText: '取消',
+                type: 'warning',
+              }
+            );
 
-      if (result.ok) {
-          // 计算释放了多少 MB 空间
-          const freedMB = (result.freed_bytes / (1024 * 1024)).toFixed(2);
-          alert(`清理成功！\n已删除文件数：${result.deleted_count}\n释放磁盘空间：${freedMB} MB`);
-          
-          // 刷新页面或重新加载视频列表数据
-          location.reload(); 
-      } else {
-          alert("清理失败：" + (result.error || "未知错误"));
+            const response = await fetch('/api/clear_viewed', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            const result = await response.json();
+
+            if (result.ok) {
+              const freedMB = (result.freed_bytes / (1024 * 1024)).toFixed(2);
+              ElMessage.success({
+                message: `清理成功！已删除 ${result.deleted_count} 个文件，释放 ${freedMB} MB 空间`,
+                duration: 4000
+              });
+              load();
+            } else {
+              ElMessage.error("清理失败：" + (result.error || "未知错误"));
+            }
+          } catch (error) {
+            if (error !== 'cancel') {
+              ElMessage.error("网络请求失败，请检查服务是否正常运行。");
+            }
+          }
+        };
+
+        const playVideo = (row) => {
+          const playUrl = `play.html?file=${encodeURIComponent(row.file)}&title=${encodeURIComponent(row.title || '')}&url=${encodeURIComponent(row.url || '')}&downloaded_at=${encodeURIComponent(row.downloaded_at || '')}&size=${encodeURIComponent(row.size || 0)}&viewed=${row.viewed ? '1' : '0'}`;
+          window.location.href = playUrl;
+        };
+
+        onMounted(() => {
+          load();
+        });
+
+        return {
+          items,
+          loading,
+          seenCount,
+          fmtSize,
+          load,
+          btnClear,
+          playVideo
+        };
       }
-  } catch (error) {
-      console.error("请求出错：", error);
-      alert("网络请求失败，请检查服务是否正常运行。");
-  }
-}
-function fmtSize(n) {
-  if (!n) return '';
-  n = Number(n);
-  if (n > 1073741824) return (n/1073741824).toFixed(2) + ' GB';
-  if (n > 1048576) return (n/1048576).toFixed(1) + ' MB';
-  return (n/1024).toFixed(0) + ' KB';
-}
+    });
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+    // 注册所有 Element Plus 图标组件
+    for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+      app.component(key, component);
+    }
 
-function renderList() {
-  if (!items.length) {
-    listEl.innerHTML = '<div class="empty"><div class="big">📁</div>暂无已下载视频<br>先运行 crawler.py 下载</div>';
-    cntEl.textContent = '共 0 个';
-    return;
-  }
-  const seen = items.filter(i => i.viewed).length;
-  cntEl.textContent = `共 ${items.length} 个 · 已看 ${seen}`;
-  
-  listEl.innerHTML = items.map((it) => {
-    const playUrl = `play.html?file=${encodeURIComponent(it.file)}&title=${encodeURIComponent(it.title || '')}&url=${encodeURIComponent(it.url || '')}&downloaded_at=${encodeURIComponent(it.downloaded_at || '')}&size=${encodeURIComponent(it.size || 0)}&viewed=${it.viewed ? '1' : '0'}`;
-    return `
-      <a class="item" href="${playUrl}">
-        <div class="meta">
-          <div class="title">${it.viewed ? '<span class="check">✅</span>' : ''}${escapeHtml(it.title)}</div>
-          <div class="sub">
-            <span>${escapeHtml(it.downloaded_at || '')}</span>
-            <span class="size">${fmtSize(it.size)}</span>
-            ${it.exists ? '' : '<span class="missing">⚠ 文件已丢失</span>'}
-          </div>
-        </div
-      </a>
-    `;
-  }).join('');
-}
-
-async function load() {
-  listEl.innerHTML = '<div class="loading">正在读取数据库…</div>';
-  try {
-    const r = await fetch('/api/videos');
-    const data = await r.json();
-    items = data.items || [];
-  } catch (e) {
-    listEl.innerHTML = `<div class="empty">读取失败: ${escapeHtml(String(e))}</div>`;
-    return;
-  }
-  renderList();
-}
-
-document.getElementById('btnReload').addEventListener('click', load);
-load();
-</script>
+    app.use(ElementPlus);
+    app.mount('#app');
+  </script>
 </body>
 </html>

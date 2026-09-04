@@ -18,6 +18,9 @@ import sys
 import webbrowser
 from pathlib import Path
 import json # <--- 新增导入
+import sys
+import subprocess
+import threading
 
 from flask import Flask, jsonify, request, send_from_directory, send_file, redirect, url_for
 
@@ -111,6 +114,67 @@ app = Flask(__name__, static_folder='html', static_url_path="")
 def index():
     return redirect('/list.html')  # 302 重定向
 
+
+# 保存全局进程对象与线程锁
+sync_process = None
+sync_lock = threading.Lock()
+
+@app.route('/api/sync/start', methods=['POST'])
+def start_sync():
+    global sync_process
+
+    with sync_lock:
+        # 检查子进程是否存在且依然在运行
+        if sync_process is not None and sync_process.poll() is None:
+            return jsonify({
+                "status": "already_running",
+                "message": "同步任务正在进行中，请勿重复发起",
+                "pid": sync_process.pid
+            }), 400
+
+        # 使用 sys.executable 确保调用当前 Python 环境中的解释器
+        # Popen 在后台独立发起进程，当前 API 瞬间完成响应
+        sync_process = subprocess.Popen([sys.executable, "crawler.py"])
+
+        return jsonify({
+            "status": "started",
+            "message": "同步任务已成功启动",
+            "pid": sync_process.pid
+        }), 200
+
+
+@app.route('/api/sync/status', methods=['GET'])
+def get_sync_status():
+    global sync_process
+
+    with sync_lock:
+        if sync_process is None:
+            return jsonify({
+                "status": "idle",
+                "running": False,
+                "message": "尚未启动过同步任务"
+            }), 200
+
+        # poll() 返回 None 表示进程还在运行中
+        # 返回整数（如 0）表示进程已退出及其退出状态码
+        return_code = sync_process.poll()
+
+        if return_code is None:
+            return jsonify({
+                "status": "running",
+                "running": True,
+                "message": "同步任务正在运行",
+                "pid": sync_process.pid
+            }), 200
+        else:
+            return jsonify({
+                "status": "finished",
+                "running": False,
+                "message": "同步任务已结束退出",
+                "return_code": return_code,
+                "pid": sync_process.pid
+            }), 200
+        
 
 # --- 新增: Config 页面路由 ---
 @app.route("/api/config", methods=["GET"])
