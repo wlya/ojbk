@@ -1,5 +1,6 @@
 *.log
 mydb.sqlite
+*.sqlite
 videos/
 *.db
 *.log
