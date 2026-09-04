@@ -78,8 +78,10 @@
   <h1>🎬 51cg1 媒体库 - 列表</h1>
   <span class="cnt" id="cnt">加载中…</span>
   <span class="spacer"></span>
+  <br>
   <button id="btnClear" onclick="btnClear()">清除已看</button>
-  <button id="btnReload">↻ 刷新列表</button>
+  <button id="btnSync" onclick="btnSync()">同步</button>
+  <button id="btnReload">↻ 刷新</button>
 </header>
 
 <div class="container">
@@ -89,10 +91,37 @@
 </div>
 
 <script>
+  let syncElement = document.getElementById('btnSync')
+  setInterval(async () =>  {
+    // 定时检查刷新进程是否正在刷新
+    const response = await fetch('/api/sync/status', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    });
+
+    const result = await response.json();
+    if(result.status == 'running'){
+      syncElement.style = 'background: #070';
+    }else{
+      syncElement.style = 'background: rgba(79,140,255,.15)';
+    }
+  }, 1000);
 const listEl = document.getElementById('list');
 const cntEl = document.getElementById('cnt');
 let items = [];
+async function btnSync() {
+  // 2. 发送 POST 请求到新增的接口
+  const response = await fetch('/api/sync/start', {
+      method: 'POST',
+      headers: {
+          'Content-Type': 'application/json'
+      }
+  });
 
+  const result = await response.json();
+}
 async function btnClear(){
   // 1. 弹出确认框（防止误触）
   if (!confirm("确定要一键清除所有已看视频的本地文件吗？")) {
