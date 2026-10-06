@@ -929,7 +929,8 @@ def run_site(conn, site, dry_run=False):
         for page in range(1, max_pages + 1):
             list_url = build_list_url(list_template, page)
             logging.info("== 列表页 %d/%d: %s", page, max_pages, list_url)
-            html = request_with_retry(session, list_url, headers=headers).text
+            # html = request_with_retry(session, list_url, headers=headers).text
+            html = grab_html_via_cdp(url=list_url, timeout=20)            
             posts = extract_posts(html, list_url, origin, page_parse_re)
             hits = [(u, t) for u, t in posts
                     if title_matches(t, include_kw, exclude_kw)]
