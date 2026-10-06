@@ -599,12 +599,13 @@ def grab_html_via_cdp(url, timeout=30.0, socket_name=None, reuse_page=True):
 #     html = grab_html_via_cdp(url, timeout=t)
 #     print(html[:800])
 ######################################
+
 def request_with_retry(session, url, *, retries=SEG_RETRIES, headers=None):
     """带重试的 GET; 遇到 Cloudflare 挑战页也计入重试"""
     last_err = None
     for attempt in range(1, retries + 1):
         try:
-            resp = grab_html_via_cdp(url=url, timeout=20)
+            resp = session.get(url, timeout=TIMEOUT, headers=headers)
             if challenge_blocked(resp):
                 raise RuntimeError("Cloudflare 挑战页(指纹可能已失效)")
             resp.raise_for_status()
@@ -853,7 +854,8 @@ def process_post(conn, session, url, title, origin, headers, dry_run=False):
         return False
 
     logging.info("▶️处理帖子: %s | %s", title, url)
-    html = request_with_retry(session, url, headers=headers).text
+    html = grab_html_via_cdp(url=url, timeout=20)
+    # html = request_with_retry(session, url, headers=headers).text
 
     m3u8s = extract_m3u8s(html)
     if not m3u8s:
