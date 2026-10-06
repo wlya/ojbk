@@ -355,132 +355,256 @@ def build_session(base_url, headers):
 
 
 
+######################################
 
-import socket
-import urllib.request
-import urllib.error
-from playwright.sync_api import sync_playwright
+#!/usr/bin/env python3
+"""
+WebView CDP 抓取器 —— 纯 Python，裸 CDP WebSocket 为主路径
+核心修复：
+  1. flatten 模式下 sessionId 必须是 JSON-RPC 顶层字段，不能塞进 params
+     （上一版把 _sessionId 放进 params，导致 Page.enable 被当浏览器级命令 -> -32601）
+  2. 用 document.readyState 轮询精确等待加载，替代裸 time.sleep
+用法：python cdp_grabber.py https://example.com 15
+"""
+
+import socket, threading, struct, os, base64
 
 
-def find_webview_cdp_targets(proc_path="/proc/net/unix"):
-    """
-    读取 /proc/net/unix，找出所有 webview_devtools_remote socket。
-    返回 [{"socket_name": "webview_devtools_remote_4910", "pid": "4910"}, ...]
-    """
+# ─── 1. 发现 webview_devtools_remote socket ───────────────────────────
+def find_webview_sockets(proc_path="/proc/net/unix"):
     pattern = re.compile(r"@webview_devtools_remote_(\d+)")
-    targets = []
-    with open(proc_path, "r") as f:
+    seen, targets = set(), []
+    with open(proc_path) as f:
         for line in f:
             m = pattern.search(line)
             if m:
                 pid = m.group(1)
-                targets.append({
-                    "socket_name": f"webview_devtools_remote_{pid}",
-                    "pid": pid,
-                })
+                if pid not in seen:
+                    seen.add(pid)
+                    targets.append({"socket_name": "webview_devtools_remote_%s" % pid, "pid": pid})
     return targets
 
 
-def _read_unix_json(socket_path: str, path: str, timeout: float = 3.0) -> dict:
-    """
-    通过抽象 Unix 域套接字发送 HTTP GET，解析 JSON 响应。
-    socket_path 形如 webview_devtools_remote_4910（不带 @ 前缀）。
-    """
-    addr = b"\x00" + socket_path.encode()
-    request_line = f"GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+# ─── 2. 轻量 TCP -> Abstract-Unix 转发器 ─────────────────────────────
+def start_tcp_forwarder(socket_name, port=0):
+    unix_addr = b"\x00" + socket_name.encode()
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", port))
+    server.listen(32)
+    assigned = server.getsockname()[1]
+
+    def _pump(src, dst):
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                dst.sendall(data)
+        except OSError:
+            pass
+        finally:
+            for s in (src, dst):
+                try:
+                    s.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                try:
+                    s.close()
+                except OSError:
+                    pass
+
+    def _accept_loop():
+        while True:
+            try:
+                client, _ = server.accept()
+            except OSError:
+                break
+            try:
+                unix = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                unix.settimeout(10)
+                unix.connect(unix_addr)
+            except Exception:
+                client.close()
+                continue
+            threading.Thread(target=_pump, args=(client, unix), daemon=True).start()
+            threading.Thread(target=_pump, args=(unix, client), daemon=True).start()
+
+    threading.Thread(target=_accept_loop, daemon=True).start()
+    return server, assigned
+
+
+# ─── 3. 裸 CDP WebSocket ─────────────────────────────────────────────
+def _ws_handshake(sock, path):
+    key = base64.b64encode(os.urandom(16)).decode()
+    req = (
+        "GET %s HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: %s\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n" % (path, key)
+    ).encode()
+    sock.sendall(req)
+    resp = b""
+    sock.settimeout(5)
+    while b"\r\n\r\n" not in resp:
+        resp += sock.recv(4096)
+    if b"101" not in resp:
+        raise RuntimeError("WebSocket 握手失败: %r" % resp[:200])
+
+
+def _ws_send(sock, msg):
+    data = json.dumps(msg).encode()
+    frame = b"\x81"
+    length = len(data)
+    if length < 126:
+        frame += struct.pack("B", 0x80 | length)
+    elif length < 65536:
+        frame += struct.pack("!BH", 0x80 | 126, length)
+    else:
+        frame += struct.pack("!BQ", 0x80 | 127, length)
+    mask = os.urandom(4)
+    masked = bytes(data[i] ^ mask[i % 4] for i in range(length))
+    sock.sendall(frame + mask + masked)
+
+
+def _ws_recv(sock, timeout=10):
+    sock.settimeout(timeout)
+    buf = bytearray()
+    while len(buf) < 2:
+        buf += sock.recv(1)
+    b0, b1 = buf[0], buf[1]
+    opcode = b0 & 0x0F
+    masked = bool(b1 & 0x80)
+    length = b1 & 0x7F
+    offset = 2
+    if length == 126:
+        while len(buf) < 4:
+            buf += sock.recv(1)
+        length = struct.unpack("!H", buf[2:4])[0]
+        offset = 4
+    elif length == 127:
+        while len(buf) < 10:
+            buf += sock.recv(1)
+        length = struct.unpack("!Q", buf[2:10])[0]
+        offset = 10
+    while len(buf) < offset + length:
+        buf += sock.recv(min(65536, offset + length - len(buf)))
+    payload = bytes(buf[offset:offset + length])
+    if masked:
+        mask_key = buf[offset - 4:offset]
+        payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(payload))
+    if opcode == 0x08:
+        raise RuntimeError("WebSocket 连接被关闭")
+    if opcode not in (0x01, 0x02):   # 忽略 ping/pong/continuation
+        return None
+    return json.loads(payload)
+
+
+class CdpConnection:
+    """扁平(flat) session 连接：sessionId 作为消息顶层字段路由。"""
+
+    def __init__(self, sock, timeout):
+        self.sock = sock
+        self.timeout = timeout
+        self._id = 0
+
+    def send(self, method, session_id=None, **params):
+        self._id += 1
+        msg = {"id": self._id, "method": method, "params": params}
+        if session_id:
+            msg["sessionId"] = session_id   # 关键：顶层字段，不是塞进 params
+        _ws_send(self.sock, msg)
+        while True:
+            r = _ws_recv(self.sock, timeout=self.timeout)
+            if r is None:
+                continue
+            if r.get("id") == self._id:        # 只取本次应答，跳过事件
+                if "error" in r:
+                    raise RuntimeError("CDP 错误 [%s]: %s" % (method, r["error"]))
+                return r.get("result", {})
+
+
+def grab_html_via_cdp(url, timeout=30.0, socket_name=None, reuse_page=True):
+    """主入口：传入 URL 与超时秒数，返回页面 HTML 字符串。"""
+    targets = find_webview_sockets()
+    if not targets:
+        raise RuntimeError("/proc/net/unix 中未找到 webview_devtools_remote")
+
+    if socket_name is None:
+        socket_name = targets[0]["socket_name"]
+        print("[+] 使用目标: %s (pid=%s)" % (socket_name, targets[0]["pid"]))
+
+    fwd, port = start_tcp_forwarder(socket_name)
+    print("[+] TCP 转发已启动 127.0.0.1:%d" % port)
+
+    browser_path = "/devtools/browser/00000000-0000-0000-0000-000000000000"
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     try:
-        sock.connect(addr)
-        sock.sendall(request_line.encode())
-        data = b""
-        while True:
-            chunk = sock.recv(65536)
-            if not chunk:
-                break
-            data += chunk
-    finally:
-        sock.close()
+        sock.connect(("127.0.0.1", port))
+        _ws_handshake(sock, browser_path)
+        cdp = CdpConnection(sock, timeout)
 
-    text = data.decode("utf-8", errors="replace")
-    # 去掉 HTTP 头，找到 JSON 起始位置
-    idx = text.find("{")
-    if idx == -1:
-        raise ValueError(f"从 {socket_path} 未读到 JSON: {text[:200]}")
-    return json.loads(text[idx:])
+        infos = cdp.send("Target.getTargets").get("targetInfos", [])
+        page_target = None
+        if reuse_page:
+            page_target = next((t for t in infos if t.get("type") == "page"), None)
+        if page_target is None:
+            page_target = cdp.send("Target.createTarget", url="about:blank")
 
+        tid = page_target["targetId"]
+        sid = cdp.send("Target.attachToTarget", targetId=tid, flatten=True)["sessionId"]
+        print("[+] attach target=%s session=%s" % (tid, sid))
 
-def _get_cdp_ws_url(socket_name: str, timeout: float = 3.0) -> str:
-    """
-    从 webview_devtools_remote_xxx 获取 WebSocket CDP 地址。
-    返回 ws://webview_devtools_remote_xxx/devtools/browser/<id>
-    """
-    info = _read_unix_json(socket_name, "/json/version", timeout=timeout)
-    ws_url = info.get("webSocketDebuggerUrl")
-    if not ws_url:
-        raise ValueError(f"未从 {socket_name} 获取到 webSocketDebuggerUrl: {info}")
-    return ws_url
-
-
-def fetch_webview_html_by_cdp(
-    url: str,
-    timeout: float = 30.0,
-    proc_path: str = "/proc/net/unix",
-) -> str:
-    """
-    在本机 Linux 上自动找到可用的 WebView CDP 端点，
-    通过抽象 Unix 域套接字连接，加载 URL 并返回网页源码。
-
-    参数：
-        url: 要访问的网页地址
-        timeout: 页面加载超时，单位秒
-        proc_path: /proc/net/unix 路径
-    """
-    targets = find_webview_cdp_targets(proc_path=proc_path)
-    if not targets:
-        raise RuntimeError("未在 /proc/net/unix 中找到 webview_devtools_remote 目标。")
-
-    timeout_ms = int(timeout * 1000)
-    last_err = None
-
-    for target in targets:
-        socket_name = target["socket_name"]
         try:
-            ws_url = _get_cdp_ws_url(socket_name, timeout=3.0)
-        except Exception as e:
-            last_err = e
-            continue
+            cdp.send("Page.enable", session_id=sid)
+        except RuntimeError as e:
+            print("[!] Page.enable 跳过: %s" % e)
 
-        with sync_playwright() as p:
-            browser = p.chromium.connect_over_cdp(ws_url)
-            try:
-                context = browser.contexts[0] if browser.contexts else browser.new_context()
-                page = context.new_page()
-                page.set_default_navigation_timeout(timeout_ms)
-                page.set_default_timeout(timeout_ms)
+        cdp.send("Page.navigate", url=url, session_id=sid)
 
-                page.goto(url, timeout=timeout_ms)
-                page.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            r = cdp.send("Runtime.evaluate", session_id=sid,
+                         expression="document.readyState", returnByValue=True)
+            if r.get("result", {}).get("value") in ("complete", "interactive"):
+                break
+            time.sleep(0.3)
 
-                return page.content()
-            finally:
-                page.close()
-                # 不要 browser.close()，避免关闭目标 WebView 进程
-
-    raise RuntimeError(
-        f"已找到 WebView 目标 {targets}，但都无法建立 CDP 连接。最后错误: {last_err}"
-    )
+        r = cdp.send("Runtime.evaluate", session_id=sid,
+                     expression="document.documentElement.outerHTML",
+                     returnByValue=True)
+        html = r["result"]["value"]
+        print("[+] 成功，HTML 长度: %d" % len(html))
+        return html
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+        try:
+            fwd.close()
+        except OSError:
+            pass
 
 
 # if __name__ == "__main__":
-#     html = fetch_webview_html_by_cdp("https://example.com", timeout=15)
-#     print(html[:600])
+#     if len(sys.argv) < 2:
+#         print("用法: python cdp_grabber.py <URL> [超时秒数]")
+#         sys.exit(1)
+#     url = sys.argv[1]
+#     t = float(sys.argv[2]) if len(sys.argv) > 2 else 30.0
+#     html = grab_html_via_cdp(url, timeout=t)
+#     print(html[:800])
+######################################
 def request_with_retry(session, url, *, retries=SEG_RETRIES, headers=None):
     """带重试的 GET; 遇到 Cloudflare 挑战页也计入重试"""
     last_err = None
     for attempt in range(1, retries + 1):
         try:
-            resp = fetch_webview_html_by_cdp(url=url, timeout=20)
+            resp = grab_html_via_cdp(url=url, timeout=20)
             if challenge_blocked(resp):
                 raise RuntimeError("Cloudflare 挑战页(指纹可能已失效)")
             resp.raise_for_status()
