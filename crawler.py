@@ -354,12 +354,133 @@ def build_session(base_url, headers):
                             proxies=proxies or None, timeout=TIMEOUT)
 
 
+
+
+import socket
+import urllib.request
+import urllib.error
+from playwright.sync_api import sync_playwright
+
+
+def find_webview_cdp_targets(proc_path="/proc/net/unix"):
+    """
+    读取 /proc/net/unix，找出所有 webview_devtools_remote socket。
+    返回 [{"socket_name": "webview_devtools_remote_4910", "pid": "4910"}, ...]
+    """
+    pattern = re.compile(r"@webview_devtools_remote_(\d+)")
+    targets = []
+    with open(proc_path, "r") as f:
+        for line in f:
+            m = pattern.search(line)
+            if m:
+                pid = m.group(1)
+                targets.append({
+                    "socket_name": f"webview_devtools_remote_{pid}",
+                    "pid": pid,
+                })
+    return targets
+
+
+def _read_unix_json(socket_path: str, path: str, timeout: float = 3.0) -> dict:
+    """
+    通过抽象 Unix 域套接字发送 HTTP GET，解析 JSON 响应。
+    socket_path 形如 webview_devtools_remote_4910（不带 @ 前缀）。
+    """
+    addr = b"\x00" + socket_path.encode()
+    request_line = f"GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect(addr)
+        sock.sendall(request_line.encode())
+        data = b""
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+    finally:
+        sock.close()
+
+    text = data.decode("utf-8", errors="replace")
+    # 去掉 HTTP 头，找到 JSON 起始位置
+    idx = text.find("{")
+    if idx == -1:
+        raise ValueError(f"从 {socket_path} 未读到 JSON: {text[:200]}")
+    return json.loads(text[idx:])
+
+
+def _get_cdp_ws_url(socket_name: str, timeout: float = 3.0) -> str:
+    """
+    从 webview_devtools_remote_xxx 获取 WebSocket CDP 地址。
+    返回 ws://webview_devtools_remote_xxx/devtools/browser/<id>
+    """
+    info = _read_unix_json(socket_name, "/json/version", timeout=timeout)
+    ws_url = info.get("webSocketDebuggerUrl")
+    if not ws_url:
+        raise ValueError(f"未从 {socket_name} 获取到 webSocketDebuggerUrl: {info}")
+    return ws_url
+
+
+def fetch_webview_html_by_cdp(
+    url: str,
+    timeout: float = 30.0,
+    proc_path: str = "/proc/net/unix",
+) -> str:
+    """
+    在本机 Linux 上自动找到可用的 WebView CDP 端点，
+    通过抽象 Unix 域套接字连接，加载 URL 并返回网页源码。
+
+    参数：
+        url: 要访问的网页地址
+        timeout: 页面加载超时，单位秒
+        proc_path: /proc/net/unix 路径
+    """
+    targets = find_webview_cdp_targets(proc_path=proc_path)
+    if not targets:
+        raise RuntimeError("未在 /proc/net/unix 中找到 webview_devtools_remote 目标。")
+
+    timeout_ms = int(timeout * 1000)
+    last_err = None
+
+    for target in targets:
+        socket_name = target["socket_name"]
+        try:
+            ws_url = _get_cdp_ws_url(socket_name, timeout=3.0)
+        except Exception as e:
+            last_err = e
+            continue
+
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(ws_url)
+            try:
+                context = browser.contexts[0] if browser.contexts else browser.new_context()
+                page = context.new_page()
+                page.set_default_navigation_timeout(timeout_ms)
+                page.set_default_timeout(timeout_ms)
+
+                page.goto(url, timeout=timeout_ms)
+                page.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+
+                return page.content()
+            finally:
+                page.close()
+                # 不要 browser.close()，避免关闭目标 WebView 进程
+
+    raise RuntimeError(
+        f"已找到 WebView 目标 {targets}，但都无法建立 CDP 连接。最后错误: {last_err}"
+    )
+
+
+# if __name__ == "__main__":
+#     html = fetch_webview_html_by_cdp("https://example.com", timeout=15)
+#     print(html[:600])
 def request_with_retry(session, url, *, retries=SEG_RETRIES, headers=None):
     """带重试的 GET; 遇到 Cloudflare 挑战页也计入重试"""
     last_err = None
     for attempt in range(1, retries + 1):
         try:
-            resp = session.get(url, timeout=TIMEOUT, headers=headers)
+            resp = fetch_webview_html_by_cdp(url=url, timeout=20)
             if challenge_blocked(resp):
                 raise RuntimeError("Cloudflare 挑战页(指纹可能已失效)")
             resp.raise_for_status()
